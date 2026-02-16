@@ -209,10 +209,6 @@ continew-start-skill/
 - [ContiNew Starter](https://github.com/continew-org/continew-starter) - Starter 依赖
 - [ContiNew 文档](https://continew.top) - 官方文档
 
-## 作者
-
-由 [@itxaiohanglover](https://github.com/itxaiohanglover) 创建
-
 ---
 
 <div align="center">
