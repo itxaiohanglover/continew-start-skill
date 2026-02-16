@@ -1,52 +1,13 @@
 ---
 name: continew-start-skill
-description: ContiNew Admin project initialization and customization skill. Use when you need to initialize a new project based on ContiNew Admin framework, including brand renaming (continew -> custom brand), package path replacements (top.continew.admin -> top.custom.admin), directory renames, module removal, and project metadata updates. Supports both interactive mode and configuration file (YAML/JSON) input for batch operations.
+description: ContiNew Admin 项目初始化和定制技能。当你需要基于 ContiNew Admin 框架初始化新项目时使用，包括品牌重命名（continew -> 自定义品牌）、包路径替换（top.continew.admin -> top.custom.admin）、目录重命名、模块移除和项目元数据更新。支持交互模式和配置文件（YAML/JSON）批量操作。
 ---
 
 # ContiNew Start Skill
 
-## Overview
-
-Automates the initialization of projects based on ContiNew Admin framework. Enables rapid project setup with custom branding, package renaming, and module configuration.
-
 ## 概述
 
 自动化基于 ContiNew Admin 框架的项目初始化。支持快速自定义品牌、包名重命名和模块配置。
-
----
-
-## Quick Start
-
-### Interactive Mode
-
-Ask Claude to initialize a ContiNew project with your custom branding:
-
-> "Initialize a new ContiNew Admin project called 'MyCompany Admin' with package 'com.mycompany.admin'"
-
-### Configuration File Mode
-
-Provide a YAML configuration file with all replacement rules:
-
-```yaml
-brand:
-  old: continew
-  new: mycompany
-
-package:
-  old: top.continew.admin
-  new: com.mycompany.admin
-
-directories:
-  rename:
-    - from: continew-admin
-      to: mycompany-admin
-    - from: continew-server
-      to: mycompany-server
-
-modules:
-  remove:
-    - continew-extension-schedule-server
-```
 
 ## 快速开始
 
@@ -54,7 +15,7 @@ modules:
 
 让 Claude 帮你初始化 ContiNew 项目：
 
-> "Initialize a new ContiNew Admin project called 'MyCompany Admin' with package 'com.mycompany.admin'"
+> "初始化一个新的 ContiNew Admin 项目，名称为 'MyCompany Admin'，包名为 'com.mycompany.admin'"
 
 ### 配置文件模式
 
@@ -80,62 +41,6 @@ modules:
   remove:
     - continew-extension-schedule-server
 ```
-
----
-
-## Core Operations
-
-### 1. Directory Renaming
-
-Renames project directories from continew-* to your custom brand name.
-
-**Scope:**
-- Root modules: continew-server, continew-system, continew-common, continew-plugin, continew-extension
-- Plugin submodules: continew-plugin-*, continew-extension-*
-- Docker directories
-
-### 2. Package Path Replacement
-
-Updates Java package paths throughout the codebase.
-
-**Scope:**
-- All Java source files (*.java)
-- MyBatis mapper XML files
-- Configuration files (application.yml, pom.xml)
-
-**Pattern:**
-```
-top/continew/admin -> top/yourbrand/admin
-top.continew.admin -> top.yourbrand.admin
-```
-
-### 3. Content Replacement
-
-Replaces brand-related strings in source files.
-
-**Scope:**
-- Java, XML, YAML, SQL, FTL files
-- Only lowercase 'continew' is replaced (preserves 'ContiNew' capitalization)
-- Configurable replacement rules
-
-### 4. Project Metadata Updates
-
-Updates project metadata files:
-
-**Files:**
-- README.md
-- package.json (frontend)
-- pom.xml (backend Maven modules)
-- package-lock.json
-- CHANGELOG.md (remove or update)
-
-### 5. Module Removal
-
-Removes optional modules that are highly decoupled.
-
-**Removable Modules:**
-- `continew-extension-schedule-server` - Task scheduling server (if company provides centralized infrastructure)
-- Plugin modules based on business needs
 
 ## 核心操作
 
@@ -191,17 +96,6 @@ top.continew.admin -> top.yourbrand.admin
 - `continew-extension-schedule-server` - 任务调度服务器（如果公司提供集中式基础设施）
 - 根据业务需求的插件模块
 
----
-
-## Workflow
-
-1. **Gather Requirements** - Ask for brand name, package name, project details
-2. **Validate Input** - Check naming conventions, package structure validity
-3. **Create Backup** - Recommend backing up original project
-4. **Execute Operations** - Perform directory renames, package replacements, content updates
-5. **Verify Changes** - Validate all replacements are complete
-6. **Update Documentation** - Update README and configuration files
-
 ## 工作流程
 
 1. **收集需求** - 询问品牌名、包名、项目详情
@@ -210,26 +104,6 @@ top.continew.admin -> top.yourbrand.admin
 4. **执行操作** - 执行目录重命名、包替换、内容更新
 5. **验证更改** - 验证所有替换是否完成
 6. **更新文档** - 更新 README 和配置文件
-
----
-
-## Resources
-
-### scripts/init_project.py
-
-Main Python script that executes the initialization process. Handles:
-- Directory traversal and renaming
-- File content search and replace
-- Package path updates
-- Module removal
-
-### references/replacement-rules.md
-
-Detailed documentation of replacement patterns and rules for ContiNew Admin project structure.
-
-### assets/config-template.yaml
-
-Template configuration file for batch operations.
 
 ## 资源
 
@@ -249,16 +123,6 @@ ContiNew Admin 项目结构的替换模式和规则详细文档。
 
 批量操作的配置文件模板。
 
----
-
-## Important Notes
-
-- **Backup First**: Always backup the original project before running initialization
-- **Case Sensitivity**: Replacement preserves capitalization (continew vs ContiNew)
-- **Module Dependencies**: Some modules have dependencies - verify before removal
-- **IDE Configuration**: After package changes, may need to update IDE project settings
-- **Git Integration**: Consider initializing git after customization with new project history
-
 ## 重要提示
 
 - **先备份**：运行初始化前始终备份原始项目
@@ -266,31 +130,6 @@ ContiNew Admin 项目结构的替换模式和规则详细文档。
 - **模块依赖**：某些模块有依赖关系 - 移除前请验证
 - **IDE 配置**：包更改后，可能需要更新 IDE 项目设置
 - **Git 集成**：自定义后考虑使用新项目历史初始化 git
-
----
-
-## Common Use Cases
-
-### Use Case 1: Company Branding
-
-Transform ContiNew Admin to company-branded solution:
-- Brand: TechCorp
-- Package: com.techcorp.admin
-- Remove: schedule-server (using centralized infrastructure)
-
-### Use Case 2: Learning Project
-
-Create a learning environment:
-- Brand: MyAdmin
-- Package: com.learn.admin
-- Keep all modules for exploration
-
-### Use Case 3: SaaS Product
-
-Initialize SaaS product based on ContiNew:
-- Brand: CloudAdmin
-- Package: com.saas.cloud
-- Customize: Remove internal-only features
 
 ## 常见用例
 
@@ -315,10 +154,6 @@ Initialize SaaS product based on ContiNew:
 - 包：com.saas.cloud
 - 自定义：移除仅内部使用的功能
 
----
+## 语言
 
-## Language / 语言
-
-This skill supports both English and Chinese (中文). Default language is English.
-
-本技能支持英文和中文。默认语言为英文。
+本技能使用中文编写。

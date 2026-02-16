@@ -1,222 +1,19 @@
 <div align="center">
 
+<img src="logo.png" alt="ContiNew Start Skill Logo" width="120" height="120">
+
 # ContiNew Start Skill
 
-[![Skill Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://github.com/itxaiohanglover/continew-start-skill)
-[![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE)
+[![技能版本](https://img.shields.io/badge/版本-1.0.0-blue.svg)](https://github.com/itxaiohanglover/continew-start-skill)
+[![许可协议](https://img.shields.io/badge/许可协议-Apache%202.0-green.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.7+-brightgreen.svg)](https://www.python.org/downloads/)
 [![Claude Skills](https://img.shields.io/badge/Claude-Skills-purple.svg)](https://skills.sh/)
 
-**Automate ContiNew Admin project initialization with custom branding and configuration**
-
-[English](#english) | [中文](#中文)
+**自动化 ContiNew Admin 项目初始化，支持自定义品牌和配置**
 
 </div>
 
 ---
-
-## English
-
-## Overview
-
-**ContiNew Start Skill** is a Claude Code skill designed to automate the initialization and customization of projects based on the [ContiNew Admin](https://github.com/continew-org/continew-admin) framework. It streamlines the process of branding, package renaming, and project configuration.
-
-### Features
-
-- 🚀 **Quick Initialization**: Set up new projects in minutes, not hours
-- 🎨 **Brand Customization**: Replace `continew` branding with your own
-- 📦 **Package Refactoring**: Automatically update Java package paths
-- 🗂️ **Directory Renaming**: Restructure project directories to match your brand
-- ⚙️ **Module Management**: Remove optional components you don't need
-- 📝 **Metadata Updates**: Update README, configs, and documentation
-- 🌍 **Bilingual Support**: English and Chinese (中文)
-
-### What It Does
-
-| Operation | Description | Example |
-|-----------|-------------|---------|
-| **Brand Replacement** | Replace brand names in files | `continew` → `mycompany` |
-| **Package Path Update** | Update Java package structures | `top.continew.admin` → `com.mycompany.admin` |
-| **Directory Rename** | Rename project directories | `continew-admin` → `mycompany-admin` |
-| **Content Replace** | Smart text replacement | Preserves `ContiNew` capitalization |
-| **Module Removal** | Remove optional modules | `continew-extension-schedule-server` |
-
-## Installation
-
-### Method 1: Using Claude Skills CLI (Recommended)
-
-```bash
-npx skills add itxaiohanglover/continew-start-skill
-```
-
-### Method 2: Manual Installation
-
-1. Download `continew-start-skill.skill` from [Releases](https://github.com/itxaiohanglover/continew-start-skill/releases)
-2. Install using:
-
-```bash
-npx skills add path/to/continew-start-skill.skill
-```
-
-## Quick Start
-
-### Interactive Mode
-
-Simply ask Claude to initialize your project:
-
-> "Initialize a new ContiNew Admin project called 'MyCompany Admin' with package 'com.mycompany.admin'"
-
-### Configuration File Mode
-
-1. Copy `config-template.yaml` from the `assets/` directory
-2. Customize it with your settings:
-
-```yaml
-brand:
-  old: continew
-  new: mycompany
-
-package:
-  old: top.continew.admin
-  new: com.mycompany.admin
-
-directories:
-  rename:
-    - from: continew-admin
-      to: mycompany-admin
-    - from: continew-server
-      to: mycompany-server
-
-modules:
-  remove:
-    - continew-extension-schedule-server
-```
-
-3. Run the initialization script:
-
-```bash
-python scripts/init_project.py --config my-config.yaml
-```
-
-## Usage Examples
-
-### Example 1: Company Branding
-
-Create a company-branded admin platform:
-
-```yaml
-brand:
-  old: continew
-  new: techcorp
-
-package:
-  old: top.continew.admin
-  new: com.techcorp.admin
-```
-
-### Example 2: Learning Project
-
-Set up a personal learning environment:
-
-```yaml
-brand:
-  old: continew
-  new: learn
-
-package:
-  old: top.continew.admin
-  new: com.learn.admin
-
-modules:
-  remove: []  # Keep all modules
-```
-
-### Example 3: SaaS Product
-
-Initialize a SaaS product:
-
-```yaml
-brand:
-  old: continew
-  new: cloudadmin
-
-package:
-  old: top.continew.admin
-  new: com.saas.cloud
-
-modules:
-  remove:
-    - continew-extension-schedule-server
-    - continew-plugin-generator  # Remove code generator
-```
-
-## Project Structure
-
-```
-continew-start-skill/
-├── SKILL.md                              # Main skill documentation (EN/ZH)
-├── README.md                             # This file
-├── LICENSE                               # Apache License 2.0
-├── scripts/
-│   └── init_project.py                   # Python initialization script
-├── references/
-│   └── replacement-rules.md              # Detailed replacement patterns
-└── assets/
-    └── config-template.yaml              # Configuration template
-```
-
-## Documentation
-
-- **[SKILL.md](SKILL.md)** - Complete skill documentation with workflow details
-- **[Replacement Rules](references/replacement-rules.md)** - Comprehensive guide to replacement patterns
-- **[Config Template](assets/config-template.yaml)** - Annotated configuration file
-
-## Requirements
-
-- Python 3.7 or higher
-- PyYAML library: `pip install pyyaml`
-
-## Important Notes
-
-> **⚠️ Always backup your project before running initialization!**
-
-- **Backup First**: Create a backup of your original project
-- **Case Sensitivity**: Replacements preserve capitalization (e.g., `ContiNew` stays `ContiNew`)
-- **Module Dependencies**: Verify dependencies before removing modules
-- **IDE Settings**: Update IDE project settings after package changes
-- **Git History**: Consider initializing new git history for your customized project
-
-## Troubleshooting
-
-### Common Issues
-
-| Issue | Solution |
-|-------|----------|
-| Module not found | Check if the module exists in your project |
-| Package path mismatch | Verify the old package name matches your project |
-| Import errors after replacement | Run `mvn clean install` to refresh dependencies |
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-## License
-
-This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
-
-## Links
-
-- [ContiNew Admin](https://github.com/continew-org/continew-admin) - The base framework
-- [ContiNew Starter](https://github.com/continew-org/continew-starter) - Starter dependencies
-- [ContiNew Documentation](https://continew.top) - Official documentation
-
-## Author
-
-Created by [@itxaiohanglover](https://github.com/itxaiohanglover)
-
----
-
-## 中文
 
 ## 概述
 
@@ -230,7 +27,6 @@ Created by [@itxaiohanglover](https://github.com/itxaiohanglover)
 - 🗂️ **目录重命名**：重组项目目录以匹配您的品牌
 - ⚙️ **模块管理**：移除不需要的可选组件
 - 📝 **元数据更新**：更新 README、配置文件和文档
-- 🌍 **双语支持**：英文和中文
 
 ### 功能说明
 
@@ -265,7 +61,7 @@ npx skills add path/to/continew-start-skill.skill
 
 直接让 Claude 帮您初始化项目：
 
-> "Initialize a new ContiNew Admin project called 'MyCompany Admin' with package 'com.mycompany.admin'"
+> "初始化一个新的 ContiNew Admin 项目，名称为 'MyCompany Admin'，包名为 'com.mycompany.admin'"
 
 ### 配置文件模式
 
@@ -355,7 +151,8 @@ modules:
 
 ```
 continew-start-skill/
-├── SKILL.md                              # 主技能文档（英文/中文）
+├── logo.png                              # 项目 Logo
+├── SKILL.md                              # 主技能文档
 ├── README.md                             # 本文件
 ├── LICENSE                               # Apache License 2.0
 ├── scripts/
@@ -396,6 +193,7 @@ continew-start-skill/
 | 找不到模块 | 检查模块是否存在于您的项目中 |
 | 包路径不匹配 | 验证旧包名是否与您的项目匹配 |
 | 替换后导入错误 | 运行 `mvn clean install` 刷新依赖 |
+| Git 推送失败 | 检查远程仓库权限和分支设置 |
 
 ## 贡献
 
@@ -419,6 +217,6 @@ continew-start-skill/
 
 <div align="center">
 
-**Made with ❤️ for the ContiNew community**
+**为 ContiNew 社区用 ❤️ 打造**
 
 </div>
