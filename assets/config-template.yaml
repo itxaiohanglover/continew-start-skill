@@ -1,0 +1,111 @@
+# ContiNew Admin Project Configuration Template
+# Use this file to define customization rules for your project
+
+# Brand Configuration
+brand:
+  # Original brand name (do not change)
+  old: continew
+  # Your new brand name (lowercase, kebab-case)
+  new: mycompany
+
+# Package Configuration
+package:
+  # Original package path (do not change)
+  old: top.continew.admin
+  # Your new package path (Java naming convention)
+  new: com.mycompany.admin
+
+# Project root directory (relative to this config file or absolute path)
+project_root: .
+
+# Directory Renaming Rules
+directories:
+  rename:
+    # Root module directories
+    - from: continew-admin
+      to: mycompany-admin
+    - from: continew-server
+      to: mycompany-server
+    - from: continew-system
+      to: mycompany-system
+    - from: continew-common
+      to: mycompany-common
+    - from: continew-plugin
+      to: mycompany-plugin
+    - from: continew-extension
+      to: mycompany-extension
+
+    # Plugin submodules (optional - uncomment if present)
+    # - from: continew-plugin/continew-plugin-open
+    #   to: mycompany-plugin/mycompany-plugin-open
+    # - from: continew-plugin/continew-plugin-tenant
+    #   to: mycompany-plugin/mycompany-plugin-tenant
+    # - from: continew-plugin/continew-plugin-schedule
+    #   to: mycompany-plugin/mycompany-plugin-schedule
+    # - from: continew-plugin/continew-plugin-generator
+    #   to: mycompany-plugin/mycompany-plugin-generator
+
+    # Extension submodules (optional)
+    # - from: continew-extension/continew-extension-schedule-server
+    #   to: mycompany-extension/mycompany-extension-schedule-server
+
+    # Docker directories
+    # - from: docker/continew-admin
+    #   to: docker/mycompany-admin
+
+# Module Removal
+modules:
+  remove:
+    # List modules to completely remove from the project
+    # These should be highly decoupled modules with no critical dependencies
+
+    # Example: Remove schedule server if using company infrastructure
+    # - continew-extension-schedule-server
+
+    # Example: Remove code generator if not needed
+    # - continew-plugin-generator
+
+# Content Replacement Rules (optional)
+content:
+  # Additional custom replacement patterns beyond standard brand/package
+  custom_patterns:
+    # - from: "Old String"
+    #   to: "New String"
+    #   file_patterns: ["*.java", "*.xml"]  # Optional: limit to specific file types
+
+# Project Metadata
+metadata:
+  # Update project metadata files
+  update_readme: true
+  update_changelog: false  # Usually false for new projects
+  update_license: true
+
+  # New project information
+  project:
+    name: MyCompany Admin
+    description: Custom admin platform based on ContiNew Admin
+    version: 1.0.0
+    author: Your Name
+    author_email: your.email@example.com
+    url: https://github.com/yourcompany/mycompany-admin
+
+# Advanced Options
+advanced:
+  # Create backup before modifications
+  create_backup: true
+  backup_location: "./backup"
+
+  # Dry run (show changes without applying)
+  dry_run: false
+
+  # Verbose output
+  verbose: true
+
+  # Files to exclude from replacement
+  exclude_patterns:
+    - "node_modules/**"
+    - "target/**"
+    - ".git/**"
+    - "*.iml"
+    - ".idea/**"
+    - "*.class"
