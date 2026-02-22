@@ -1,5 +1,5 @@
 # ContiNew Admin Project Configuration Template
-# Use this file to define customization rules for your project
+# Use this file to define customization rules for your project.
 
 # Brand Configuration
 brand:
@@ -15,7 +15,8 @@ package:
   # Your new package path (Java naming convention)
   new: com.mycompany.admin
 
-# Project root directory (relative to this config file or absolute path)
+# Project root directory.
+# Relative paths are resolved from this config file's directory.
 project_root: .
 
 # Directory Renaming Rules
@@ -49,20 +50,20 @@ directories:
     # - from: continew-extension/continew-extension-schedule-server
     #   to: mycompany-extension/mycompany-extension-schedule-server
 
-    # Docker directories
+    # Docker directories (optional)
     # - from: docker/continew-admin
     #   to: docker/mycompany-admin
 
 # Module Removal
 modules:
   remove:
-    # List modules to completely remove from the project
-    # These should be highly decoupled modules with no critical dependencies
-
-    # Example: Remove schedule server if using company infrastructure
+    # You can use either a short module name:
     # - continew-extension-schedule-server
+    # or a full relative path:
+    # - continew-extension/continew-extension-schedule-server
 
-    # Example: Remove code generator if not needed
+    # Common optional modules
+    # - continew-plugin-schedule
     # - continew-plugin-generator
 
 # Content Replacement Rules (optional)
@@ -71,16 +72,16 @@ content:
   custom_patterns:
     # - from: "Old String"
     #   to: "New String"
-    #   file_patterns: ["*.java", "*.xml"]  # Optional: limit to specific file types
+    #   file_patterns: ["**/*.java", "**/*.xml"]  # Optional
 
 # Project Metadata
 metadata:
   # Update project metadata files
   update_readme: true
-  update_changelog: false  # Usually false for new projects
-  update_license: true
+  update_changelog: false
+  update_license: false
 
-  # New project information
+  # New project information (used by README update)
   project:
     name: MyCompany Admin
     description: Custom admin platform based on ContiNew Admin
@@ -93,7 +94,12 @@ metadata:
 advanced:
   # Create backup before modifications
   create_backup: true
-  backup_location: "./backup"
+
+  # Recommended: place backup outside project root
+  backup_location: "../backup"
+
+  # Auto rollback from backup if any step fails
+  rollback_on_failure: true
 
   # Dry run (show changes without applying)
   dry_run: false
@@ -101,7 +107,7 @@ advanced:
   # Verbose output
   verbose: true
 
-  # Files to exclude from replacement
+  # Files to exclude from replacement/traversal
   exclude_patterns:
     - "node_modules/**"
     - "target/**"

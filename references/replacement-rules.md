@@ -1,235 +1,118 @@
 # ContiNew Admin Replacement Rules
 
-This document details all replacement patterns and rules for customizing ContiNew Admin projects.
+This document defines practical replacement and cleanup rules for customizing ContiNew Admin projects.
 
-## Brand Naming Replacement
+## 1. Brand Replacement
 
-### Content Replacement Rules
+### 1.1 Content rules
 
-| Pattern | Replacement | Scope | Notes |
-|---------|-------------|-------|-------|
-| `continew` | `{new_brand}` | Java, XML, YAML, SQL, FTL | Only lowercase, preserves `ContiNew` |
-| `ContiNew` | Keep unchanged | All files | Brand name with capitalization |
-| `CONTINEW` | `{NEW_BRAND_UPPER}` | Constants | If needed for consistency |
+| Pattern | Action | Notes |
+|---------|--------|-------|
+| `continew` | Replace with `{new_brand}` | Replace by token boundary (avoid accidental substring replacement) |
+| `ContiNew` | Keep by default | Preserve brand capitalization unless explicitly required |
+| `CONTINEW` | Optional custom replacement | Apply only when constant names must be aligned |
 
-### Directory Renaming Patterns
+### 1.2 Directory rename rules
 
-**Root Modules:**
+**Root modules**
+
+```text
+continew-admin      -> {new-brand}-admin
+continew-server     -> {new-brand}-server
+continew-system     -> {new-brand}-system
+continew-common     -> {new-brand}-common
+continew-plugin     -> {new-brand}-plugin
+continew-extension  -> {new-brand}-extension
 ```
-continew-admin -> {new-brand}-admin
-continew-server -> {new-brand}-server
-continew-system -> {new-brand}-system
-continew-common -> {new-brand}-common
-continew-plugin -> {new-brand}-plugin
-continew-extension -> {new-brand}-extension
-```
 
-**Plugin Submodules:**
-```
-continew-plugin/continew-plugin-open -> {new-brand}-plugin/{new-brand}-plugin-open
-continew-plugin/continew-plugin-tenant -> {new-brand}-plugin/{new-brand}-plugin-tenant
-continew-plugin/continew-plugin-schedule -> {new-brand}-plugin/{new-brand}-plugin-schedule
+**Submodules (optional)**
+
+```text
+continew-plugin/continew-plugin-open      -> {new-brand}-plugin/{new-brand}-plugin-open
+continew-plugin/continew-plugin-tenant    -> {new-brand}-plugin/{new-brand}-plugin-tenant
+continew-plugin/continew-plugin-schedule  -> {new-brand}-plugin/{new-brand}-plugin-schedule
 continew-plugin/continew-plugin-generator -> {new-brand}-plugin/{new-brand}-plugin-generator
-```
-
-**Extension Submodules:**
-```
 continew-extension/continew-extension-schedule-server -> {new-brand}-extension/{new-brand}-extension-schedule-server
 ```
 
-**Docker:**
-```
-docker/continew-admin -> docker/{new-brand}-admin
-```
+## 2. Package Replacement
 
-## Package Path Replacement
+### 2.1 Replace scope
 
-### Java Package Structure
+- Replace only `top.continew.admin` and `top/continew/admin`
+- Common files: `*.java`, `*.xml`, `*.yml`, `*.yaml`, `*.ftl`, `*.properties`
 
-**Old Structure:**
-```
-top/
-└── continew/
-    └── admin/
-        ├── common/
-        ├── system/
-        ├── plugin/
-        └── server/
-```
+### 2.2 Protected literals (must NOT be replaced)
 
-**New Structure:**
-```
-{base_package}/
-└── {brand}/
-    └── admin/
-        ├── common/
-        ├── system/
-        ├── plugin/
-        └── server/
-```
+Do not replace these values:
 
-### Package Import Statements
+- `top.continew.starter`
+- `top/continew/starter`
+- `continew-starter`
 
-**Before:**
-```java
-import top.continew.admin.common.model.entity.BaseDO;
-import top.continew.admin.system.api.UserApi;
-```
+Reason: these are external Starter dependencies, not project namespace.
 
-**After:**
-```java
-import {new_package}.common.model.entity.BaseDO;
-import {new_package}.system.api.UserApi;
-```
+## 3. Module Removal Rules
 
-### MyBatis Mapper XML
+### 3.1 Supported module names
 
-**Before:**
-```xml
-<mapper namespace="top.continew.admin.system.mapper.UserMapper">
-```
+Short name or relative path are both acceptable:
 
-**After:**
-```xml
-<mapper namespace="{new_package}.system.mapper.UserMapper">
-```
+- `continew-extension-schedule-server`
+- `continew-extension/continew-extension-schedule-server`
+- `continew-plugin-schedule`
+- `continew-plugin-generator`
 
-### Maven Configuration (pom.xml)
+### 3.2 Mandatory sync after deletion
 
-**Dependencies:**
-```xml
-<!-- Before -->
-<groupId>top.continew</groupId>
-<artifactId>continew-admin</artifactId>
+After removing a module directory, also remove related entries from `pom.xml`:
 
-<!-- After -->
-<groupId>{new_group_id}</groupId>
-<artifactId>{new_brand}-admin</artifactId>
-```
+1. `<module>...</module>` in aggregator POMs
+2. `<dependency>...<artifactId>removed-module</artifactId>...</dependency>` in dependent modules
 
-## File Content Replacements
+If you only delete files without updating POMs, Maven build will fail.
 
-### Configuration Files
+## 4. Metadata Update Rules
 
-**application.yml:**
-```yaml
-# Before
-name: continew-admin
+Minimum recommended updates:
 
-# After
-name: {new_brand}-admin
+- `README.md` project title/description
+- Optional: `CHANGELOG.md` strategy (keep or reset)
+- Optional: license holder info
+
+## 5. Safety Strategy
+
+### 5.1 Before execution
+
+- Run in a feature branch
+- Enable backup
+- Prefer `--dry-run` first
+
+### 5.2 During execution
+
+- Exclude heavy/generated paths (`.git`, `target`, `node_modules`, etc.)
+- Record updated files and replacement counts
+
+### 5.3 On failure
+
+- Roll back from backup if enabled
+
+## 6. Post-Run Checklist
+
+1. Verify no unexpected `top.continew.admin` remains
+2. Verify Starter namespace is intact (`top.continew.starter`)
+3. Run backend build:
+
+```bash
+mvn clean install
 ```
 
-### API Documentation
+4. Refresh IDE indexing
+5. Run smoke tests for startup and key APIs
 
-**Controller Tags:**
-```java
-// Before
-@Tag(name = "ContiNew Admin API")
+## 7. Common Pitfalls
 
-// After
-@Tag(name = "{Project Name} API")
-```
-
-### README.md Updates
-
-Key sections to update:
-- Project title and description
-- Badge links and references
-- Author/maintainer information
-- Documentation links
-- License holder
-
-## Module Removal Guide
-
-### Safe to Remove
-
-**continew-extension-schedule-server**
-- Purpose: Standalone task scheduling server
-- When to remove: Company provides centralized scheduling infrastructure
-- Dependencies: Low - highly decoupled from main application
-
-### Plugin Modules
-
-**continew-plugin-schedule**
-- Purpose: Task scheduling integration
-- When to remove: Not using distributed task scheduling
-- Dependencies: Moderate - check for scheduled tasks in code
-
-**continew-plugin-generator**
-- Purpose: Code generation
-- When to remove: Code generation not needed
-- Dependencies: Low - isolated functionality
-
-### Keep for Full Functionality
-
-**continew-plugin-open** - API/Open platform features
-**continew-plugin-tenant** - Multi-tenancy support
-**continew-common** - Core shared functionality
-**continew-system** - System management features
-
-## Special Cases
-
-### Starter Dependencies
-
-ContiNew Starter dependencies typically should NOT be renamed:
-```xml
-<!-- Keep these as-is -->
-<dependency>
-    <groupId>top.continew.starter</groupId>
-    <artifactId>continew-starter-web</artifactId>
-</dependency>
-```
-
-These are external dependencies published to Maven Central.
-
-### Third-Party Integrations
-
-When replacing brand names in third-party integration code:
-- Check for API key/secret references
-- Update OAuth callback URLs
-- Verify webhook endpoints
-
-## Post-Renaming Tasks
-
-1. **IDE Configuration**
-   - Update project structure in IntelliJ IDEA
-   - Refresh Maven dependencies
-   - Re-index code base
-
-2. **Build Verification**
-   ```bash
-   mvn clean install
-   ```
-
-3. **Git Initialization**
-   ```bash
-   git init
-   git add .
-   git commit -m "Initial commit: Customized from ContiNew Admin"
-   ```
-
-4. **Documentation Updates**
-   - Update all README references
-   - Update API documentation links
-   - Update deployment guides
-
-## Common Pitfalls
-
-### Case Sensitivity Issues
-
-**Problem:** Replacing all occurrences including capitalized "ContiNew"
-**Solution:** Only replace lowercase "continew" in content
-
-**Problem:** Breaking constant names like CONTINEW_ADMIN
-**Solution:** Preserve constants or update consistently
-
-### Module Dependencies
-
-**Problem:** Removing modules with undeclared dependencies
-**Solution:** Always check for import statements before removal
-
-### Build Failures
-
-**Problem:** Package path mismatches after replacement
-**Solution:** Verify all imports, especially in test files
+- Replacing `top.continew.starter` by mistake
+- Deleting module directories without cleaning POM references
+- Renaming parent directories before children (path conflicts)
+- Running directly without dry-run and backup
