@@ -68,6 +68,16 @@ python scripts/init_project.py --config my-config.yaml
 python scripts/init_project.py --config my-config.yaml --dry-run
 ```
 
+### Advanced CLI Options
+
+```bash
+# Strict mode: treat warnings as failure
+python scripts/init_project.py --config my-config.yaml --strict
+
+# Export machine-readable report
+python scripts/init_project.py --config my-config.yaml --report-json ./logs/init-report.json
+```
+
 ## 示例配置
 
 ```yaml
@@ -89,6 +99,8 @@ advanced:
   backup_location: ../backup
   rollback_on_failure: true
   dry_run: false
+  strict: false
+  # report_json: ./logs/init-report.json
 ```
 
 ## 项目结构

@@ -8,10 +8,11 @@ module-aware cleanup.
 
 import argparse
 import fnmatch
+import json
 import re
 import shutil
 import sys
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple
@@ -59,7 +60,14 @@ def _is_relative_to(path: Path, parent: Path) -> bool:
 class ContiNewInitializer:
     """Handles ContiNew Admin project initialization and customization."""
 
-    def __init__(self, config: Dict, config_file: Optional[Path] = None, cli_dry_run: bool = False):
+    def __init__(
+        self,
+        config: Dict,
+        config_file: Optional[Path] = None,
+        cli_dry_run: bool = False,
+        cli_strict: bool = False,
+        cli_report_json: Optional[str] = None,
+    ):
         config = config or {}
         self.config_file = config_file.resolve() if config_file else None
         self.config_base_dir = self.config_file.parent if self.config_file else Path.cwd()
@@ -76,11 +84,14 @@ class ContiNewInitializer:
 
         advanced = config.get("advanced", {}) or {}
         self.dry_run = bool(cli_dry_run or advanced.get("dry_run", False))
+        self.strict = bool(cli_strict or advanced.get("strict", False))
         self.verbose = bool(advanced.get("verbose", True))
         self.create_backup_enabled = bool(advanced.get("create_backup", True))
         self.rollback_on_failure = bool(advanced.get("rollback_on_failure", True))
         self.backup_location_raw = advanced.get("backup_location", "../backup")
         self.exclude_patterns = tuple((advanced.get("exclude_patterns", []) or []) + list(DEFAULT_EXCLUDES))
+        report_json = cli_report_json if cli_report_json is not None else advanced.get("report_json")
+        self.report_json_path = self._resolve_optional_path(report_json, self.config_base_dir)
 
         content_cfg = config.get("content", {}) or {}
         self.custom_patterns = content_cfg.get("custom_patterns", []) or []
@@ -101,6 +112,15 @@ class ContiNewInitializer:
 
     @staticmethod
     def _resolve_path(path_text: str, base_dir: Path) -> Path:
+        candidate = Path(path_text)
+        if candidate.is_absolute():
+            return candidate.resolve()
+        return (base_dir / candidate).resolve()
+
+    @staticmethod
+    def _resolve_optional_path(path_text: Optional[str], base_dir: Path) -> Optional[Path]:
+        if not path_text:
+            return None
         candidate = Path(path_text)
         if candidate.is_absolute():
             return candidate.resolve()
@@ -553,6 +573,8 @@ class ContiNewInitializer:
         print("Execution Summary")
         print("=" * 60)
         print(f"Dry run: {self.dry_run}")
+        print(f"Strict mode: {self.strict}")
+        print(f"Report JSON: {self.report_json_path if self.report_json_path else 'disabled'}")
         print(f"Files scanned: {self.report.files_scanned}")
         print(f"Files updated: {self.report.files_updated}")
         print(f"Replacement count: {self.report.replacements}")
@@ -563,6 +585,38 @@ class ContiNewInitializer:
         if self.report.warnings:
             print(f"Warnings: {len(self.report.warnings)}")
         print("=" * 60)
+
+    def _strict_failure_reasons(self) -> List[str]:
+        reasons: List[str] = []
+        if self.report.missing_modules:
+            reasons.append("Found missing module paths in pom.xml validation")
+        if self.report.warnings:
+            reasons.append(f"Found {len(self.report.warnings)} warning(s)")
+        return reasons
+
+    def _build_report_payload(self, success: bool, config_errors: Optional[List[str]] = None) -> Dict:
+        return {
+            "success": success,
+            "dry_run": self.dry_run,
+            "strict": self.strict,
+            "timestamp": datetime.now().isoformat(),
+            "project_root": str(self.project_root),
+            "brand": {"old": self.brand_old, "new": self.brand_new},
+            "package": {"old": self.package_old, "new": self.package_new},
+            "config_errors": config_errors or [],
+            "report": asdict(self.report),
+        }
+
+    def _write_report_json(self, success: bool, config_errors: Optional[List[str]] = None):
+        if not self.report_json_path:
+            return
+        payload = self._build_report_payload(success=success, config_errors=config_errors)
+        try:
+            self.report_json_path.parent.mkdir(parents=True, exist_ok=True)
+            self.report_json_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+            self._log(f"Report written: {self.report_json_path}")
+        except (OSError, PermissionError) as exc:
+            self._warn(f"Failed to write report json: {exc}")
 
     def run(self) -> bool:
         """Execute the full initialization process."""
@@ -580,8 +634,10 @@ class ContiNewInitializer:
             print("Configuration errors:")
             for error in errors:
                 print(f"  - {error}")
+            self._write_report_json(success=False, config_errors=errors)
             return False
 
+        success = False
         try:
             self.create_backup()
             self.remove_modules()
@@ -594,15 +650,23 @@ class ContiNewInitializer:
         except Exception as exc:  # pylint: disable=broad-except
             self._warn(f"Execution failed: {exc}")
             self.try_rollback()
-            self.print_summary()
-            return False
+        else:
+            success = True
+            if self.strict:
+                strict_failures = self._strict_failure_reasons()
+                if strict_failures:
+                    success = False
+                    for reason in strict_failures:
+                        self._warn(f"[STRICT] {reason}")
 
         self.print_summary()
-        print("\nNext steps:")
-        print("1. Review changes in your IDE")
-        print("2. Run: mvn clean install (backend)")
-        print("3. Validate startup and key APIs")
-        return True
+        self._write_report_json(success=success)
+        if success:
+            print("\nNext steps:")
+            print("1. Review changes in your IDE")
+            print("2. Run: mvn clean install (backend)")
+            print("3. Validate startup and key APIs")
+        return success
 
 
 def load_config(config_file: str) -> Dict:
@@ -622,7 +686,7 @@ def interactive_mode() -> Dict:
         "directories": {"rename": []},
         "modules": {"remove": []},
         "project_root": ".",
-        "advanced": {"create_backup": True, "dry_run": False, "verbose": True},
+        "advanced": {"create_backup": True, "dry_run": False, "strict": False, "verbose": True},
     }
 
     config["brand"]["new"] = input("Enter new brand name (e.g., mycompany): ").strip().lower()
@@ -664,6 +728,8 @@ def main() -> int:
     parser.add_argument("--config", "-c", help="Configuration file (YAML)")
     parser.add_argument("--interactive", "-i", action="store_true", help="Interactive mode")
     parser.add_argument("--dry-run", action="store_true", help="Preview changes without writing files")
+    parser.add_argument("--strict", action="store_true", help="Fail when warnings are found")
+    parser.add_argument("--report-json", help="Write execution report as JSON")
     args = parser.parse_args()
 
     if args.interactive:
@@ -676,7 +742,13 @@ def main() -> int:
         parser.print_help()
         return 1
 
-    initializer = ContiNewInitializer(config=config, config_file=config_file, cli_dry_run=args.dry_run)
+    initializer = ContiNewInitializer(
+        config=config,
+        config_file=config_file,
+        cli_dry_run=args.dry_run,
+        cli_strict=args.strict,
+        cli_report_json=args.report_json,
+    )
     success = initializer.run()
     return 0 if success else 1
 

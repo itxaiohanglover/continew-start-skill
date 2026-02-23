@@ -104,6 +104,12 @@ advanced:
   # Dry run (show changes without applying)
   dry_run: false
 
+  # Strict mode: fail when warnings are found
+  strict: false
+
+  # Optional JSON report output path (relative to this config file)
+  # report_json: "./logs/init-report.json"
+
   # Verbose output
   verbose: true
 

@@ -53,6 +53,15 @@ python scripts/init_project.py --config my-config.yaml
 python scripts/init_project.py --config my-config.yaml --dry-run
 ```
 
+进阶用法（适合 Claude/CI）：
+```bash
+# 严格模式：出现 warning 即返回失败
+python scripts/init_project.py --config my-config.yaml --strict
+
+# 输出结构化结果，便于机器读取
+python scripts/init_project.py --config my-config.yaml --report-json ./logs/init-report.json
+```
+
 ## 核心操作
 
 ### 1. 目录重命名
@@ -65,7 +74,7 @@ python scripts/init_project.py --config my-config.yaml --dry-run
 
 ### 3. 内容替换
 
-替换品牌相关字符串：仅按词边界替换小写 `continew`，保留 `ContiNew`。
+替换品牌相关字符串：仅按词边界替换小写 `continew`，保留 `ContiNew`（示例：`continew-admin` 会替换，`mycontinewapp` 不会替换）。
 
 ### 4. 模块移除（含依赖清理）
 
