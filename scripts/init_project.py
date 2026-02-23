@@ -45,6 +45,7 @@ class ExecutionReport:
     dirs_removed: List[str] = field(default_factory=list)
     pom_updated: List[str] = field(default_factory=list)
     warnings: List[str] = field(default_factory=list)
+    missing_modules: List[str] = field(default_factory=list)
 
 
 def _is_relative_to(path: Path, parent: Path) -> bool:
@@ -206,6 +207,33 @@ class ContiNewInitializer:
         file_path.write_text(content, encoding="utf-8")
         self._log(f"Updated: {rel}")
 
+    def _merge_dir_contents(self, old_path: Path, new_path: Path, old_name: str, new_name: str):
+        """Merge old directory contents into existing target directory."""
+        rel_message = f"{old_name} => {new_name} (merge)"
+        if self.dry_run:
+            self._log(f"[DRY-RUN] Would merge directory: {rel_message}")
+            self.report.dirs_renamed.append(rel_message)
+            return
+
+        for child in old_path.iterdir():
+            target = new_path / child.name
+            if target.exists():
+                try:
+                    rel_target = target.relative_to(self.project_root).as_posix()
+                except ValueError:
+                    rel_target = str(target)
+                self._warn(f"Merge conflict, keeping existing path: {rel_target}")
+                continue
+            shutil.move(str(child), str(target))
+
+        try:
+            old_path.rmdir()
+        except OSError:
+            self._warn(f"Directory not empty after merge: {old_name}")
+
+        self._log(f"Merged: {rel_message}")
+        self.report.dirs_renamed.append(rel_message)
+
     @staticmethod
     def _protect_literals(content: str) -> Tuple[str, Dict[str, str]]:
         placeholder_map: Dict[str, str] = {}
@@ -244,6 +272,9 @@ class ContiNewInitializer:
                 self._warn(f"Directory not found: {old_name}")
                 continue
             if new_path.exists():
+                if old_path.is_dir() and new_path.is_dir():
+                    self._merge_dir_contents(old_path, new_path, old_name, new_name)
+                    continue
                 self._warn(f"Target already exists: {new_name}")
                 continue
 
@@ -458,6 +489,46 @@ class ContiNewInitializer:
         else:
             self._log("No old package references detected.")
 
+        self._validate_child_modules_exist()
+
+    @staticmethod
+    def _extract_module_names(pom_content: str) -> List[str]:
+        return [name.strip() for name in re.findall(r"<module>\s*([^<\s]+)\s*</module>", pom_content)]
+
+    def _validate_child_modules_exist(self):
+        """Validate that all child modules declared in pom.xml physically exist."""
+        missing_entries: List[str] = []
+
+        for pom_file in self.project_root.rglob("pom.xml"):
+            if self._should_skip_file(pom_file):
+                continue
+            try:
+                content = pom_file.read_text(encoding="utf-8")
+            except (UnicodeDecodeError, PermissionError) as exc:
+                self._warn(f"Skipping module path validation for {pom_file}: {exc}")
+                continue
+
+            module_names = self._extract_module_names(content)
+            if not module_names:
+                continue
+
+            for module_name in module_names:
+                module_dir = (pom_file.parent / module_name).resolve()
+                if module_dir.exists():
+                    continue
+
+                pom_rel = pom_file.relative_to(self.project_root).as_posix()
+                try:
+                    module_rel = module_dir.relative_to(self.project_root).as_posix()
+                except ValueError:
+                    module_rel = str(module_dir)
+
+                message = f"{pom_rel} -> missing module dir: {module_rel}"
+                missing_entries.append(message)
+                self._warn(message)
+
+        self.report.missing_modules.extend(missing_entries)
+
     def try_rollback(self):
         if self.dry_run or not self.rollback_on_failure or not self.backup_path:
             return
@@ -488,6 +559,7 @@ class ContiNewInitializer:
         print(f"Directories renamed: {len(self.report.dirs_renamed)}")
         print(f"Directories removed: {len(self.report.dirs_removed)}")
         print(f"POM files updated: {len(self.report.pom_updated)}")
+        print(f"Missing module paths: {len(self.report.missing_modules)}")
         if self.report.warnings:
             print(f"Warnings: {len(self.report.warnings)}")
         print("=" * 60)
@@ -569,7 +641,18 @@ def interactive_mode() -> Dict:
         ("continew-common", f"{brand_new}-common"),
         ("continew-plugin", f"{brand_new}-plugin"),
         ("continew-extension", f"{brand_new}-extension"),
+        ("continew-plugin/continew-plugin-open", f"{brand_new}-plugin/{brand_new}-plugin-open"),
+        ("continew-plugin/continew-plugin-tenant", f"{brand_new}-plugin/{brand_new}-plugin-tenant"),
+        ("continew-plugin/continew-plugin-schedule", f"{brand_new}-plugin/{brand_new}-plugin-schedule"),
+        ("continew-plugin/continew-plugin-generator", f"{brand_new}-plugin/{brand_new}-plugin-generator"),
     ]
+    if remove_schedule != "y":
+        directories.append(
+            (
+                "continew-extension/continew-extension-schedule-server",
+                f"{brand_new}-extension/{brand_new}-extension-schedule-server",
+            )
+        )
     for old_dir, new_dir in directories:
         config["directories"]["rename"].append({"from": old_dir, "to": new_dir})
 
