@@ -4,12 +4,12 @@
 
 # ContiNew Start Skill
 
-[![技能版本](https://img.shields.io/badge/版本-1.0.0-blue.svg)](https://github.com/itxaiohanglover/continew-start-skill)
+[![版本](https://img.shields.io/badge/版本-1.1.0-blue.svg)](https://github.com/itxaiohanglover/continew-start-skill)
 [![许可协议](https://img.shields.io/badge/许可协议-Apache%202.0-green.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.7+-brightgreen.svg)](https://www.python.org/downloads/)
 [![Claude Skills](https://img.shields.io/badge/Claude-Skills-purple.svg)](https://skills.sh/)
 
-**自动化 ContiNew Admin 项目初始化，支持自定义品牌和配置**
+**自动化 ContiNew Admin 二次初始化，支持安全预演与模块联动清理**
 
 </div>
 
@@ -17,56 +17,68 @@
 
 ## 概述
 
-**ContiNew Start Skill** 是一个专为 Claude Code 设计的技能，用于自动化初始化和定制基于 [ContiNew Admin](https://github.com/continew-org/continew-admin) 框架的项目。它简化了品牌化、包重命名和项目配置的流程。
+**ContiNew Start Skill** 是一个面向 Claude Code 的初始化技能，用于将 [ContiNew Admin](https://github.com/continew-org/continew-admin) 快速改造成你的业务工程。
 
-### 功能特性
+它覆盖：品牌替换、包路径替换、目录重命名、可选模块移除、元数据更新，并提供 `dry-run`、备份与失败回滚。
 
-- 🚀 **快速初始化**：几分钟内完成项目设置，而非数小时
-- 🎨 **品牌定制**：将 `continew` 品牌替换为您自己的品牌
-- 📦 **包重构**：自动更新 Java 包路径
-- 🗂️ **目录重命名**：重组项目目录以匹配您的品牌
-- ⚙️ **模块管理**：移除不需要的可选组件
-- 📝 **元数据更新**：更新 README、配置文件和文档
+## 功能特性
 
-### 功能说明
-
-| 操作 | 描述 | 示例 |
-|------|------|------|
-| **品牌替换** | 替换文件中的品牌名称 | `continew` → `mycompany` |
-| **包路径更新** | 更新 Java 包结构 | `top.continew.admin` → `com.mycompany.admin` |
-| **目录重命名** | 重命名项目目录 | `continew-admin` → `mycompany-admin` |
-| **内容替换** | 智能文本替换 | 保留 `ContiNew` 首字母大写 |
-| **模块移除** | 移除可选模块 | `continew-extension-schedule-server` |
+- 🚀 快速初始化：几分钟完成基础改造
+- 🎨 品牌定制：`continew` -> 自定义品牌
+- 📦 包路径重构：`top.continew.admin` -> 自定义包名
+- 🗂️ 目录重命名：按配置批量改模块目录
+- ⚙️ 模块移除：删除模块并联动清理 `pom.xml` 依赖与聚合项
+- 🧪 干跑预演：`--dry-run` 先看变更再落盘
+- 🛟 安全机制：支持备份与失败回滚
+- 🛡️ 保护规则：避免误改 `top.continew.starter` / `continew-starter`
 
 ## 安装
 
-### 方法 1：使用 Claude Skills CLI（推荐）
+### 方法 1：Claude Skills CLI（推荐）
 
 ```bash
 npx skills add itxaiohanglover/continew-start-skill
 ```
 
-### 方法 2：手动安装
-
-1. 从 [Releases](https://github.com/itxaiohanglover/continew-start-skill/releases) 下载 `continew-start-skill.skill`
-2. 使用以下命令安装：
+### 方法 2：本地路径安装
 
 ```bash
-npx skills add path/to/continew-start-skill.skill
+npx skills add path/to/continew-start-skill
 ```
 
 ## 快速开始
 
-### 交互模式
+### 方式 A：让 Claude 直接执行
 
-直接让 Claude 帮您初始化项目：
+> "用 continew-start-skill 初始化项目，brand=mycompany，package=com.mycompany.admin"
 
-> "初始化一个新的 ContiNew Admin 项目，名称为 'MyCompany Admin'，包名为 'com.mycompany.admin'"
+### 方式 B：配置文件 + 脚本
 
-### 配置文件模式
+1. 复制 `assets/config-template.yaml`
+2. 按需修改配置
+3. 执行初始化
 
-1. 从 `assets/` 目录复制 `config-template.yaml`
-2. 根据您的需求自定义配置：
+```bash
+python scripts/init_project.py --config my-config.yaml
+```
+
+先预演（不写入）：
+
+```bash
+python scripts/init_project.py --config my-config.yaml --dry-run
+```
+
+### Advanced CLI Options
+
+```bash
+# Strict mode: treat warnings as failure
+python scripts/init_project.py --config my-config.yaml --strict
+
+# Export machine-readable report
+python scripts/init_project.py --config my-config.yaml --report-json ./logs/init-report.json
+```
+
+## 示例配置
 
 ```yaml
 brand:
@@ -77,142 +89,63 @@ package:
   old: top.continew.admin
   new: com.mycompany.admin
 
-directories:
-  rename:
-    - from: continew-admin
-      to: mycompany-admin
-    - from: continew-server
-      to: mycompany-server
-
 modules:
   remove:
     - continew-extension-schedule-server
-```
+    - continew-plugin-generator
 
-3. 运行初始化脚本：
-
-```bash
-python scripts/init_project.py --config my-config.yaml
-```
-
-## 使用示例
-
-### 示例 1：公司品牌化
-
-创建公司品牌的管理局平台：
-
-```yaml
-brand:
-  old: continew
-  new: techcorp
-
-package:
-  old: top.continew.admin
-  new: com.techcorp.admin
-```
-
-### 示例 2：学习项目
-
-设置个人学习环境：
-
-```yaml
-brand:
-  old: continew
-  new: learn
-
-package:
-  old: top.continew.admin
-  new: com.learn.admin
-
-modules:
-  remove: []  # 保留所有模块
-```
-
-### 示例 3：SaaS 产品
-
-初始化 SaaS 产品：
-
-```yaml
-brand:
-  old: continew
-  new: cloudadmin
-
-package:
-  old: top.continew.admin
-  new: com.saas.cloud
-
-modules:
-  remove:
-    - continew-extension-schedule-server
-    - continew-plugin-generator  # 移除代码生成器
+advanced:
+  create_backup: true
+  backup_location: ../backup
+  rollback_on_failure: true
+  dry_run: false
+  strict: false
+  # report_json: ./logs/init-report.json
 ```
 
 ## 项目结构
 
-```
+```text
 continew-start-skill/
-├── logo.png                              # 项目 Logo
-├── SKILL.md                              # 主技能文档
-├── README.md                             # 本文件
-├── LICENSE                               # Apache License 2.0
+├── SKILL.md
+├── README.md
+├── LICENSE
 ├── scripts/
-│   └── init_project.py                   # Python 初始化脚本
+│   └── init_project.py
 ├── references/
-│   └── replacement-rules.md              # 详细的替换模式指南
+│   └── replacement-rules.md
 └── assets/
-    └── config-template.yaml              # 配置文件模板
+    └── config-template.yaml
 ```
 
-## 文档
+## 重要说明
 
-- **[SKILL.md](SKILL.md)** - 完整的技能文档和工作流程详情
-- **[替换规则](references/replacement-rules.md)** - 替换模式综合指南
-- **[配置模板](assets/config-template.yaml)** - 带注释的配置文件
-
-## 系统要求
-
-- Python 3.7 或更高版本
-- PyYAML 库：`pip install pyyaml`
-
-## 重要提示
-
-> **⚠️ 运行初始化前务必备份您的项目！**
-
-- **先备份**：创建原始项目的备份
-- **大小写敏感**：替换保留大小写（如 `ContiNew` 保持不变）
-- **模块依赖**：移除模块前验证依赖关系
-- **IDE 设置**：包更改后更新 IDE 项目设置
-- **Git 历史**：考虑为定制的项目初始化新的 git 历史
+- 建议始终在新分支执行初始化
+- 建议先跑 `--dry-run` 再执行真实改造
+- 模块移除后请执行 `mvn clean install` 验证
+- 若改了目录结构，请在 IDE 中刷新索引
 
 ## 常见问题
 
-### 常见问题解决
+| 问题 | 建议 |
+|------|------|
+| 找不到模块 | 检查模块名是否为短名或正确相对路径 |
+| 包路径替换不完整 | 检查 `package.old` 是否与目标仓库一致 |
+| 构建失败 | 执行 `mvn clean install` 并检查 `pom.xml` 依赖 |
+| 脚本无法运行 | 安装 `pyyaml`：`pip install pyyaml` |
 
-| 问题 | 解决方案 |
-|------|----------|
-| 找不到模块 | 检查模块是否存在于您的项目中 |
-| 包路径不匹配 | 验证旧包名是否与您的项目匹配 |
-| 替换后导入错误 | 运行 `mvn clean install` 刷新依赖 |
-| Git 推送失败 | 检查远程仓库权限和分支设置 |
+## 文档
 
-## 贡献
-
-欢迎贡献！请随时提交 Pull Request。
+- [SKILL.md](SKILL.md) - 技能工作流
+- [references/replacement-rules.md](references/replacement-rules.md) - 替换与清理规则
+- [assets/config-template.yaml](assets/config-template.yaml) - 配置模板
 
 ## 许可证
 
-本项目采用 Apache License 2.0 许可证 - 详见 [LICENSE](LICENSE) 文件。
+本项目采用 Apache License 2.0，详见 [LICENSE](LICENSE)。
 
 ## 相关链接
 
-- [ContiNew Admin](https://github.com/continew-org/continew-admin) - 基础框架
-- [ContiNew Starter](https://github.com/continew-org/continew-starter) - Starter 依赖
-- [ContiNew 文档](https://continew.top) - 官方文档
-
----
-
-<div align="center">
-
-**为 ContiNew 社区用 ❤️ 打造**
-
-</div>
+- [ContiNew Admin](https://github.com/continew-org/continew-admin)
+- [ContiNew Starter](https://github.com/continew-org/continew-starter)
+- [ContiNew 文档](https://continew.top)
