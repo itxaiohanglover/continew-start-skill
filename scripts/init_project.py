@@ -1,757 +1,650 @@
 #!/usr/bin/env python3
 """
-ContiNew Project Initialization Script
+Project Initialization Script - Multi-Framework Support
 
-Automates ContiNew Admin project initialization with safer replacement and
-module-aware cleanup.
+Automates the initialization of ContiNew Admin, RuoYi, and other Java admin framework
+projects with custom branding, package renaming, and module configuration.
+
+Supported frameworks: continew, ruoyi
+
+Usage:
+    python init_project.py [--config CONFIG_FILE] [--interactive] [--framework FRAMEWORK]
+
+Examples:
+    python init_project.py --config my-config.yaml
+    python init_project.py --interactive
+    python init_project.py --interactive --framework ruoyi
 """
 
-import argparse
-import fnmatch
-import json
-import re
+import os
 import shutil
-import sys
-from dataclasses import asdict, dataclass, field
-from datetime import datetime
+import argparse
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple
+from typing import Dict, List, Tuple, Optional
 
-try:
+
+def _script_dir() -> Path:
+    """Get directory containing this script."""
+    return Path(__file__).resolve().parent
+
+
+def _assets_dir() -> Path:
+    """Get assets directory (sibling of scripts)."""
+    return _script_dir().parent / 'assets'
+
+
+def load_presets() -> Dict:
+    """Load framework presets from YAML."""
     import yaml
-except ImportError as exc:
-    print("Missing dependency: pyyaml. Install with: pip install pyyaml")
-    raise exc
+    presets_path = _assets_dir() / 'framework-presets.yaml'
+    if not presets_path.exists():
+        return {}
+    with open(presets_path, 'r', encoding='utf-8') as f:
+        return yaml.safe_load(f) or {}
 
 
-DEFAULT_TEXT_PATTERNS = ("**/*.java", "**/*.xml", "**/*.yaml", "**/*.yml", "**/*.sql", "**/*.ftl", "**/*.md")
-PACKAGE_PATTERNS = ("**/*.java", "**/*.xml", "**/*.yaml", "**/*.yml", "**/*.ftl", "**/*.properties")
-DEFAULT_EXCLUDES = (".git/**", "target/**", "node_modules/**", ".idea/**", "*.iml", "*.class")
-PROTECTED_LITERALS = ("top.continew.starter", "top/continew/starter", "continew-starter")
-KNOWN_MODULE_PATHS = {
-    "continew-extension-schedule-server": "continew-extension/continew-extension-schedule-server",
-    "continew-plugin-schedule": "continew-plugin/continew-plugin-schedule",
-    "continew-plugin-generator": "continew-plugin/continew-plugin-generator",
-    "continew-plugin-open": "continew-plugin/continew-plugin-open",
-    "continew-plugin-tenant": "continew-plugin/continew-plugin-tenant",
-}
+def detect_framework(project_root: Path) -> Optional[str]:
+    """Auto-detect framework from project structure."""
+    if not project_root.exists():
+        return None
+    if (project_root / 'ruoyi-admin').exists():
+        return 'ruoyi'
+    if (project_root / 'continew-admin').exists():
+        return 'continew'
+    return None
 
 
-@dataclass
-class ExecutionReport:
-    files_scanned: int = 0
-    files_updated: int = 0
-    replacements: int = 0
-    dirs_renamed: List[str] = field(default_factory=list)
-    dirs_removed: List[str] = field(default_factory=list)
-    pom_updated: List[str] = field(default_factory=list)
-    warnings: List[str] = field(default_factory=list)
-    missing_modules: List[str] = field(default_factory=list)
+def merge_preset(config: Dict, preset: Dict, brand_new: str) -> Dict:
+    """Merge framework preset into config. Uses brand_new to build directory renames."""
+    merged = dict(config)
+
+    if 'brand' not in merged:
+        merged['brand'] = {}
+    merged['brand'].setdefault('old', preset.get('brand', {}).get('old', ''))
+    merged['brand']['new'] = merged['brand'].get('new') or brand_new
+    merged['brand'].setdefault('cap_old', preset.get('brand', {}).get('cap_old', ''))
+
+    if 'package' not in merged:
+        merged['package'] = {}
+    merged['package'].setdefault('old', preset.get('package', {}).get('old', ''))
+
+    dirs = preset.get('directories', [])
+    if dirs and 'directories' not in merged:
+        merged['directories'] = {'rename': []}
+    elif 'directories' not in merged:
+        merged['directories'] = {'rename': []}
+
+    # Build directory renames from preset if not explicitly provided
+    if not merged['directories'].get('rename') and dirs:
+        project_root = Path(merged.get('project_root', '.'))
+        renames = []
+        for d in dirs:
+            from_name = d.get('from', '')
+            suffix = d.get('suffix', from_name.split('-', 1)[-1] if '-' in from_name else '')
+            to_name = f"{brand_new}-{suffix}" if suffix else f"{brand_new}-{from_name}"
+            if (project_root / from_name).exists():
+                renames.append({'from': from_name, 'to': to_name})
+        merged['directories']['rename'] = renames
+
+    return merged
 
 
-def _is_relative_to(path: Path, parent: Path) -> bool:
-    try:
-        path.resolve().relative_to(parent.resolve())
-        return True
-    except ValueError:
-        return False
+class ProjectInitializer:
+    """Handles project initialization and customization for multiple frameworks."""
 
+    def __init__(self, config: Dict):
+        self._config = config
+        brand_cfg = config.get('brand', {})
+        self.brand_old = brand_cfg.get('old', '')
+        self.brand_new = brand_cfg.get('new', '')
+        self.cap_old = brand_cfg.get('cap_old', '')
+        self.cap_new = brand_cfg.get('cap_new', '') or (self.brand_new.capitalize() if self.brand_new else '')
+        self.package_old = config.get('package', {}).get('old', '')
+        self.package_new = config.get('package', {}).get('new', '')
+        self.directories = config.get('directories', {}).get('rename', [])
+        self.modules_remove = config.get('modules', {}).get('remove') or []
+        self.project_root = Path(config.get('project_root', '.'))
+        self.preserve = config.get('preserve', {})
+        self.replacements = config.get('replacements', [])
+        self.file_renames = config.get('file_renames', [])
+        adv = config.get('advanced', {}) or {}
+        self.dry_run = adv.get('dry_run', False)
 
-class ContiNewInitializer:
-    """Handles ContiNew Admin project initialization and customization."""
-
-    def __init__(
-        self,
-        config: Dict,
-        config_file: Optional[Path] = None,
-        cli_dry_run: bool = False,
-        cli_strict: bool = False,
-        cli_report_json: Optional[str] = None,
-    ):
-        config = config or {}
-        self.config_file = config_file.resolve() if config_file else None
-        self.config_base_dir = self.config_file.parent if self.config_file else Path.cwd()
-
-        self.brand_old = config.get("brand", {}).get("old", "continew").strip()
-        self.brand_new = config.get("brand", {}).get("new", "").strip()
-        self.package_old = config.get("package", {}).get("old", "top.continew.admin").strip()
-        self.package_new = config.get("package", {}).get("new", "").strip()
-        self.directories = config.get("directories", {}).get("rename", []) or []
-        self.modules_remove = config.get("modules", {}).get("remove", []) or []
-
-        raw_project_root = config.get("project_root", ".")
-        self.project_root = self._resolve_path(raw_project_root, self.config_base_dir)
-
-        advanced = config.get("advanced", {}) or {}
-        self.dry_run = bool(cli_dry_run or advanced.get("dry_run", False))
-        self.strict = bool(cli_strict or advanced.get("strict", False))
-        self.verbose = bool(advanced.get("verbose", True))
-        self.create_backup_enabled = bool(advanced.get("create_backup", True))
-        self.rollback_on_failure = bool(advanced.get("rollback_on_failure", True))
-        self.backup_location_raw = advanced.get("backup_location", "../backup")
-        self.exclude_patterns = tuple((advanced.get("exclude_patterns", []) or []) + list(DEFAULT_EXCLUDES))
-        report_json = cli_report_json if cli_report_json is not None else advanced.get("report_json")
-        self.report_json_path = self._resolve_optional_path(report_json, self.config_base_dir)
-
-        content_cfg = config.get("content", {}) or {}
-        self.custom_patterns = content_cfg.get("custom_patterns", []) or []
-
-        metadata_cfg = config.get("metadata", {}) or {}
-        self.update_readme = bool(metadata_cfg.get("update_readme", True))
-        self.update_changelog = bool(metadata_cfg.get("update_changelog", False))
-        self.update_license = bool(metadata_cfg.get("update_license", False))
-        self.metadata_project = metadata_cfg.get("project", {}) or {}
-
-        self.package_old_slash = self.package_old.replace(".", "/")
-        self.package_new_slash = self.package_new.replace(".", "/")
-        self.brand_pattern = re.compile(rf"(?<![A-Za-z0-9_]){re.escape(self.brand_old)}(?![A-Za-z0-9_])")
-
-        self.report = ExecutionReport()
-        self.backup_path: Optional[Path] = None
-        self.backup_outside_root = True
-
-    @staticmethod
-    def _resolve_path(path_text: str, base_dir: Path) -> Path:
-        candidate = Path(path_text)
-        if candidate.is_absolute():
-            return candidate.resolve()
-        return (base_dir / candidate).resolve()
-
-    @staticmethod
-    def _resolve_optional_path(path_text: Optional[str], base_dir: Path) -> Optional[Path]:
-        if not path_text:
-            return None
-        candidate = Path(path_text)
-        if candidate.is_absolute():
-            return candidate.resolve()
-        return (base_dir / candidate).resolve()
-
-    def _log(self, message: str):
-        if self.verbose:
-            print(message)
-
-    def _warn(self, message: str):
-        self.report.warnings.append(message)
-        print(f"[WARN] {message}")
+        # Convert package dots to path separators
+        self.package_old_path = self.package_old.replace('.', os.sep) if self.package_old else ''
+        self.package_new_path = self.package_new.replace('.', os.sep) if self.package_new else ''
 
     def validate_config(self) -> Tuple[bool, List[str]]:
         """Validate configuration before proceeding."""
-        errors: List[str] = []
+        errors = []
 
         if not self.brand_new:
             errors.append("New brand name is required")
-        elif not re.fullmatch(r"[a-z0-9-]+", self.brand_new):
-            errors.append("New brand name must match [a-z0-9-]+")
 
         if not self.package_new:
             errors.append("New package name is required")
-        elif not re.fullmatch(r"[a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]*)*", self.package_new):
-            errors.append("New package name is invalid")
 
         if not self.project_root.exists():
             errors.append(f"Project root does not exist: {self.project_root}")
-        elif not (self.project_root / "pom.xml").exists():
-            self._warn(f"No root pom.xml found under: {self.project_root}")
-
-        if self.brand_old == self.brand_new:
-            self._warn("Old and new brand names are identical; brand replacement will be skipped.")
-
-        if self.package_old == self.package_new:
-            self._warn("Old and new package names are identical; package replacement will be skipped.")
 
         return len(errors) == 0, errors
 
-    def _backup_base_dir(self) -> Path:
-        configured = Path(self.backup_location_raw)
-        if configured.is_absolute():
-            return configured
-        return (self.project_root / configured).resolve()
-
-    def create_backup(self) -> Optional[Path]:
+    def create_backup(self) -> Path:
         """Create a backup of the project before modifications."""
-        if not self.create_backup_enabled:
-            self._log("Backup skipped: create_backup=false")
-            return None
+        adv = self._config.get('advanced', {}) or {}
+        if adv.get('create_backup') is False:
+            return self.project_root
+        loc = adv.get('backup_location', '')
+        if loc:
+            backup_path = Path(loc)
+            if not backup_path.is_absolute():
+                backup_path = self.project_root.parent / backup_path
+        else:
+            backup_path = self.project_root.parent / f"{self.project_root.name}-backup"
 
-        if self.dry_run:
-            self._log("Backup skipped in dry-run mode")
-            return None
+        print(f"Creating backup at: {backup_path}")
+        if not self.dry_run and not backup_path.exists():
+            exclude_dirs = {'.git', 'target', 'node_modules', '__pycache__', '.idea'}
+            def _ignore(d, files):
+                return [f for f in files if (Path(d) / f).is_dir() and f in exclude_dirs]
+            shutil.copytree(self.project_root, backup_path, ignore=_ignore)
+            print("Backup complete.")
+        elif backup_path.exists():
+            print("Backup path already exists, skipping.")
 
-        backup_base = self._backup_base_dir()
-        backup_base.mkdir(parents=True, exist_ok=True)
-        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-        backup_path = backup_base / f"{self.project_root.name}-{timestamp}"
-
-        self.backup_outside_root = not _is_relative_to(backup_path, self.project_root)
-        if not self.backup_outside_root and self.rollback_on_failure:
-            self._warn("Backup path is inside project root; auto-rollback will be disabled.")
-
-        self._log(f"Creating backup at: {backup_path}")
-        shutil.copytree(
-            self.project_root,
-            backup_path,
-            ignore=shutil.ignore_patterns(".git", "target", "node_modules", ".idea", "*.class"),
-        )
-        self.backup_path = backup_path
         return backup_path
 
-    def _should_skip_file(self, file_path: Path) -> bool:
-        try:
-            rel = file_path.resolve().relative_to(self.project_root.resolve()).as_posix()
-        except ValueError:
-            return True
+    def apply_file_renames(self):
+        """Apply file renames from config. Executes before directory renames."""
+        print("\n=== Applying File Renames ===")
+        if not self.file_renames:
+            return
+        for fr in self.file_renames:
+            path = fr.get('path', '')
+            new_name = fr.get('new_name', '')
+            if not path or not new_name:
+                continue
+            old_path = self.project_root / path.replace('/', os.sep)
+            if not old_path.exists() or not old_path.is_file():
+                print(f"Skipping {path}: file not found")
+                continue
+            new_path = old_path.parent / new_name
+            if new_path == old_path:
+                continue
+            if new_path.exists():
+                print(f"Skipping {path}: {new_name} already exists")
+                continue
+            if self.dry_run:
+                print(f"[DRY-RUN] Would rename: {path} -> {new_name}")
+            else:
+                old_path.rename(new_path)
+                print(f"Renamed: {path} -> {new_name}")
 
-        for pattern in self.exclude_patterns:
-            normalized = pattern.replace("\\", "/")
-            if fnmatch.fnmatch(rel, normalized) or fnmatch.fnmatch(file_path.name, normalized):
+    def apply_replacements(self):
+        """Apply content replacements from config. Sorted by from length descending."""
+        print("\n=== Applying Replacements ===")
+        if not self.replacements:
+            return
+        exts = [
+            '.java', '.xml', '.yaml', '.yml', '.ftl', '.sql', '.md', '.html',
+            '.vm', '.properties', '.js', '.css', '.javai', '.txt', '.json',
+            '.py', '.ts', '.tsx', '.toml', '.ini', '.sh', '.tpl',
+        ]
+        content_cfg = self._config.get('content', {}) or {}
+        extra = content_cfg.get('extra_file_patterns', [])
+        if extra:
+            for e in extra:
+                if e not in exts:
+                    exts.append(e)
+
+        repl_list = [(r['from'], r['to']) for r in self.replacements if r.get('from') and r.get('to')]
+        if not repl_list:
+            return
+
+        for ext in exts:
+            glob_pat = '*' + ext if ext.startswith('.') else ext
+            for file_path in self.project_root.rglob(glob_pat):
+                if self._should_skip_path(file_path):
+                    continue
+                if file_path.is_file():
+                    self._replace_in_file_multi(file_path, repl_list)
+
+        # Handle named files without standard extensions: Dockerfile, Dockerfile.*, Makefile
+        for file_path in self.project_root.rglob("*"):
+            if not file_path.is_file() or self._should_skip_path(file_path):
+                continue
+            if file_path.name == "Dockerfile" or file_path.name.startswith("Dockerfile.") or file_path.name == "Makefile":
+                self._replace_in_file_multi(file_path, repl_list)
+
+    def rename_package_directories(self):
+        """Rename Java package directories (e.g. me/zhengjie -> com/test3)."""
+        print("\n=== Renaming Package Directories ===")
+
+        if not self.package_old_path or not self.package_new_path or self.package_old_path == self.package_new_path:
+            return
+
+        # Find all src/main/java and src/test/java under project (including nested modules)
+        bases = []
+        for java_dir in ['src/main/java', 'src/test/java']:
+            for base in self.project_root.rglob(java_dir):
+                if base.is_dir():
+                    bases.append(base)
+        for base in bases:
+            old_pkg = base / self.package_old_path
+            if not old_pkg.exists():
+                continue
+            new_pkg = base / self.package_new_path
+            if new_pkg.exists():
+                print(f"Skipping {old_pkg.relative_to(self.project_root)}: target exists")
+                continue
+            # Check if new_pkg is inside old_pkg (e.g. me.zhengjie -> me.zhengjie.superadmin)
+            try:
+                new_pkg.resolve().relative_to(old_pkg.resolve())
+                is_nested = True
+            except ValueError:
+                is_nested = False
+
+            if self.dry_run:
+                if is_nested:
+                    print(f"[DRY-RUN] Would move contents: {old_pkg.relative_to(self.project_root)} -> {new_pkg.relative_to(self.project_root)}")
+                else:
+                    print(f"[DRY-RUN] Would rename: {old_pkg.relative_to(self.project_root)} -> {new_pkg.relative_to(self.project_root)}")
+            else:
+                if is_nested:
+                    # Create new_pkg and move contents of old_pkg into it (can't rename parent to child)
+                    new_pkg.mkdir(parents=True, exist_ok=True)
+                    for item in list(old_pkg.iterdir()):
+                        if item.name == new_pkg.name:
+                            continue
+                        dest = new_pkg / item.name
+                        if dest.exists():
+                            continue
+                        shutil.move(str(item), str(dest))
+                    print(f"Moved contents: {old_pkg.relative_to(self.project_root)} -> {new_pkg.relative_to(self.project_root)}")
+                else:
+                    new_pkg.parent.mkdir(parents=True, exist_ok=True)
+                    parent_of_old = old_pkg.parent
+                    old_pkg.rename(new_pkg)
+                    print(f"Renamed: {old_pkg.relative_to(self.project_root)} -> {new_pkg.relative_to(self.project_root)}")
+                    candidate = parent_of_old
+                    while candidate.exists() and candidate != base:
+                        try:
+                            candidate.rmdir()
+                            candidate = candidate.parent
+                        except OSError:
+                            break
+
+    def rename_directories(self):
+        """Rename directories from framework-* to custom brand."""
+        print("\n=== Renaming Directories ===")
+
+        for dir_config in self.directories:
+            old_name = dir_config.get('from', '')
+            new_name = dir_config.get('to', '')
+
+            if not old_name or not new_name:
+                continue
+
+            old_path = self.project_root / old_name
+            new_path = self.project_root / new_name
+
+            if old_path.exists() and not new_path.exists():
+                if self.dry_run:
+                    print(f"[DRY-RUN] Would rename: {old_name} -> {new_name}")
+                else:
+                    print(f"Renaming: {old_name} -> {new_name}")
+                    old_path.rename(new_path)
+            elif new_path.exists():
+                print(f"Skipping {old_name}: {new_name} already exists")
+
+    def replace_package_paths(self):
+        """Replace package paths in Java source files and XML configs."""
+        print("\n=== Replacing Package Paths ===")
+
+        if not self.package_old or not self.package_new:
+            return
+
+        patterns = [
+            '**/*.java', '**/*.xml', '**/*.yaml', '**/*.yml', '**/*.ftl', '**/*.html', '**/*.vm',
+            '**/*.properties', '**/*.javai', '**/*.txt', '**/*.py', '**/*.ts', '**/*.tsx',
+            '**/*.toml', '**/*.ini', '**/*.sh',
+        ]
+        content_cfg = getattr(self, '_config', {}).get('content', {}) or {}
+        extra = content_cfg.get('extra_file_patterns', [])
+        if extra:
+            patterns = list(patterns) + list(extra)
+
+        for pattern in patterns:
+            for file_path in self.project_root.rglob(pattern):
+                if self._should_skip_path(file_path):
+                    continue
+
+                self._replace_in_file(file_path, self.package_old, self.package_new)
+
+    def replace_brand_content(self):
+        """Replace brand names in file content. Does cap_old->cap_new first, then brand_old->brand_new."""
+        print("\n=== Replacing Brand Content ===")
+
+        patterns = [
+            '**/*.java', '**/*.xml', '**/*.yaml', '**/*.yml', '**/*.sql', '**/*.ftl', '**/*.md',
+            '**/*.html', '**/*.vm', '**/*.properties', '**/*.js', '**/*.css', '**/*.javai',
+            '**/*.txt', '**/*.py', '**/*.ts', '**/*.tsx', '**/*.toml', '**/*.ini', '**/*.sh',
+        ]
+        content_cfg = self._config.get('content', {}) or {}
+        extra = content_cfg.get('extra_file_patterns', [])
+        if extra:
+            patterns = list(patterns) + list(extra)
+
+        replacements = []
+        if self.cap_old and self.cap_new:
+            replacements.append((self.cap_old, self.cap_new))
+        if self.brand_old and self.brand_new:
+            replacements.append((self.brand_old, self.brand_new))
+        if not replacements:
+            return
+
+        for pattern in patterns:
+            for file_path in self.project_root.rglob(pattern):
+                if self._should_skip_path(file_path):
+                    continue
+
+                self._replace_in_file_multi(file_path, replacements)
+
+    def rename_brand_files(self):
+        """Rename Java files whose names contain cap_old (e.g. RuoYiConfig.java -> Test2Config.java)."""
+        print("\n=== Renaming Brand Files ===")
+
+        if not self.cap_old or not self.cap_new or self.cap_old == self.cap_new:
+            return
+
+        for file_path in self.project_root.rglob('**/*.java'):
+            if self._should_skip_path(file_path):
+                continue
+            if self.cap_old not in file_path.name:
+                continue
+            new_name = file_path.name.replace(self.cap_old, self.cap_new)
+            if new_name == file_path.name:
+                continue
+            new_path = file_path.parent / new_name
+            if new_path.exists():
+                print(f"Skipping {file_path.name}: {new_name} already exists")
+                continue
+            if self.dry_run:
+                print(f"[DRY-RUN] Would rename: {file_path.relative_to(self.project_root)} -> {new_path.relative_to(self.project_root)}")
+            else:
+                file_path.rename(new_path)
+                print(f"Renamed: {file_path.relative_to(self.project_root)} -> {new_path.relative_to(self.project_root)}")
+
+    def rename_brand_subdirs(self):
+        """Rename directories named brand_old to brand_new (e.g. static/ruoyi -> static/test2)."""
+        print("\n=== Renaming Brand Subdirectories ===")
+
+        if not self.brand_old or not self.brand_new or self.brand_old == self.brand_new:
+            return
+
+        dirs_to_rename = []
+        for d in self.project_root.rglob('*'):
+            if not d.is_dir() or self._should_skip_path(d):
+                continue
+            if d.name == self.brand_old:
+                dirs_to_rename.append(d)
+
+        for d in sorted(dirs_to_rename, key=lambda p: len(p.parts), reverse=True):
+            new_path = d.parent / self.brand_new
+            if new_path.exists():
+                print(f"Skipping {d.relative_to(self.project_root)}: target exists")
+                continue
+            if self.dry_run:
+                print(f"[DRY-RUN] Would rename: {d.relative_to(self.project_root)} -> {new_path.relative_to(self.project_root)}")
+            else:
+                d.rename(new_path)
+                print(f"Renamed: {d.relative_to(self.project_root)} -> {new_path.relative_to(self.project_root)}")
+
+    def _should_skip_path(self, file_path: Path) -> bool:
+        """Check if path should be skipped. Uses path parts to avoid .git matching .github."""
+        try:
+            rel_path = file_path.relative_to(self.project_root)
+        except ValueError:
+            rel_path = file_path
+        parts = rel_path.parts
+        if '.git' in parts:
+            return True
+        if 'backup' in parts or 'target' in parts or 'node_modules' in parts:
+            return True
+        if 'venv' in parts or '.venv' in parts or '__pycache__' in parts:
+            return True
+        if 'ajax' in parts and 'libs' in parts:
+            idx_ajax = parts.index('ajax')
+            if idx_ajax + 1 < len(parts) and parts[idx_ajax + 1] == 'libs':
                 return True
         return False
 
-    def _iter_files(self, patterns: Sequence[str]) -> Iterable[Path]:
-        seen: Set[Path] = set()
-        for pattern in patterns:
-            for file_path in self.project_root.rglob(pattern):
-                if not file_path.is_file():
-                    continue
-                resolved = file_path.resolve()
-                if resolved in seen or self._should_skip_file(resolved):
-                    continue
-                seen.add(resolved)
-                yield resolved
+    def _replace_in_file(self, file_path: Path, old_text: str, new_text: str):
+        """Replace text in a file."""
+        self._replace_in_file_multi(file_path, [(old_text, new_text)])
 
-    def _write_file(self, file_path: Path, content: str):
-        rel = file_path.relative_to(self.project_root).as_posix()
-        if self.dry_run:
-            self._log(f"[DRY-RUN] Would update: {rel}")
-            return
-        file_path.write_text(content, encoding="utf-8")
-        self._log(f"Updated: {rel}")
-
-    def _merge_dir_contents(self, old_path: Path, new_path: Path, old_name: str, new_name: str):
-        """Merge old directory contents into existing target directory."""
-        rel_message = f"{old_name} => {new_name} (merge)"
-        if self.dry_run:
-            self._log(f"[DRY-RUN] Would merge directory: {rel_message}")
-            self.report.dirs_renamed.append(rel_message)
-            return
-
-        for child in old_path.iterdir():
-            target = new_path / child.name
-            if target.exists():
-                try:
-                    rel_target = target.relative_to(self.project_root).as_posix()
-                except ValueError:
-                    rel_target = str(target)
-                self._warn(f"Merge conflict, keeping existing path: {rel_target}")
-                continue
-            shutil.move(str(child), str(target))
-
+    def _replace_in_file_multi(self, file_path: Path, replacements: List[Tuple[str, str]]):
+        """Replace multiple patterns in a file. Applies preserve rules if configured."""
         try:
-            old_path.rmdir()
-        except OSError:
-            self._warn(f"Directory not empty after merge: {old_name}")
+            content = file_path.read_text(encoding='utf-8')
+            preserve_patterns = self._get_preserve_patterns()
+            preserve_paths = self._get_preserve_paths()
 
-        self._log(f"Merged: {rel_message}")
-        self.report.dirs_renamed.append(rel_message)
+            if preserve_paths and self._path_matches_preserve(file_path, preserve_paths):
+                return
 
-    @staticmethod
-    def _protect_literals(content: str) -> Tuple[str, Dict[str, str]]:
-        placeholder_map: Dict[str, str] = {}
-        protected = content
-        for idx, literal in enumerate(PROTECTED_LITERALS):
-            placeholder = f"__CN_PROTECT_{idx}__"
-            protected = protected.replace(literal, placeholder)
-            placeholder_map[placeholder] = literal
-        return protected, placeholder_map
+            new_content = content
+            for old_text, new_text in replacements:
+                if preserve_patterns:
+                    lines = new_content.splitlines(keepends=True)
+                    new_lines = []
+                    for line in lines:
+                        if any(p in line for p in preserve_patterns):
+                            new_lines.append(line)
+                        else:
+                            new_lines.append(line.replace(old_text, new_text))
+                    new_content = ''.join(new_lines)
+                else:
+                    new_content = new_content.replace(old_text, new_text)
 
-    @staticmethod
-    def _restore_literals(content: str, placeholder_map: Dict[str, str]) -> str:
-        restored = content
-        for placeholder, literal in placeholder_map.items():
-            restored = restored.replace(placeholder, literal)
-        return restored
+            if new_content != content:
+                if self.dry_run:
+                    print(f"[DRY-RUN] Would update: {file_path.relative_to(self.project_root)}")
+                else:
+                    file_path.write_text(new_content, encoding='utf-8')
+                    print(f"Updated: {file_path.relative_to(self.project_root)}")
 
-    def rename_directories(self):
-        """Rename directories from continew-* to custom brand."""
-        self._log("\n=== Renaming Directories ===")
+        except (UnicodeDecodeError, PermissionError) as e:
+            print(f"Skipping {file_path}: {e}")
 
-        normalized: List[Tuple[str, str]] = []
-        for dir_config in self.directories:
-            old_name = (dir_config.get("from") or "").strip().replace("\\", "/")
-            new_name = (dir_config.get("to") or "").strip().replace("\\", "/")
-            if old_name and new_name:
-                normalized.append((old_name, new_name))
+    def _get_preserve_patterns(self) -> List[str]:
+        """Preserve patterns from config only - no hardcoded defaults."""
+        return list(self.preserve.get('patterns') or [])
 
-        normalized.sort(key=lambda pair: len(pair[0].split("/")), reverse=True)
+    def _get_preserve_paths(self) -> List[str]:
+        return self.preserve.get('paths') or []
 
-        for old_name, new_name in normalized:
-            old_path = (self.project_root / old_name).resolve()
-            new_path = (self.project_root / new_name).resolve()
-
-            if not old_path.exists():
-                self._warn(f"Directory not found: {old_name}")
-                continue
-            if new_path.exists():
-                if old_path.is_dir() and new_path.is_dir():
-                    self._merge_dir_contents(old_path, new_path, old_name, new_name)
-                    continue
-                self._warn(f"Target already exists: {new_name}")
-                continue
-
-            rel_message = f"{old_name} -> {new_name}"
-            if self.dry_run:
-                self._log(f"[DRY-RUN] Would rename: {rel_message}")
-            else:
-                new_path.parent.mkdir(parents=True, exist_ok=True)
-                old_path.rename(new_path)
-                self._log(f"Renamed: {rel_message}")
-            self.report.dirs_renamed.append(rel_message)
-
-    def _replace_in_file_literal(self, file_path: Path, replacements: Sequence[Tuple[str, str]]) -> Tuple[bool, int]:
+    def _path_matches_preserve(self, file_path: Path, preserve_paths: List[str]) -> bool:
         try:
-            content = file_path.read_text(encoding="utf-8")
-        except (UnicodeDecodeError, PermissionError) as exc:
-            self._warn(f"Skipping {file_path}: {exc}")
-            return False, 0
-
-        changed = False
-        replacement_count = 0
-        updated = content
-        for old_text, new_text in replacements:
-            if not old_text or old_text == new_text:
-                continue
-            count = updated.count(old_text)
-            if count:
-                updated = updated.replace(old_text, new_text)
-                replacement_count += count
-                changed = True
-
-        if changed:
-            self._write_file(file_path, updated)
-        return changed, replacement_count
-
-    def replace_package_paths(self):
-        """Replace package references while preserving starter namespaces."""
-        self._log("\n=== Replacing Package Paths ===")
-
-        replacements = (
-            (self.package_old, self.package_new),
-            (self.package_old_slash, self.package_new_slash),
-        )
-        for file_path in self._iter_files(PACKAGE_PATTERNS):
-            self.report.files_scanned += 1
-            changed, count = self._replace_in_file_literal(file_path, replacements)
-            if changed:
-                self.report.files_updated += 1
-                self.report.replacements += count
-
-    def replace_brand_content(self):
-        """Replace brand names while preserving protected literals."""
-        self._log("\n=== Replacing Brand Content ===")
-        if self.brand_old == self.brand_new:
-            return
-
-        for file_path in self._iter_files(DEFAULT_TEXT_PATTERNS):
-            self.report.files_scanned += 1
-            try:
-                content = file_path.read_text(encoding="utf-8")
-            except (UnicodeDecodeError, PermissionError) as exc:
-                self._warn(f"Skipping {file_path}: {exc}")
-                continue
-
-            protected, placeholder_map = self._protect_literals(content)
-            replaced, count = self.brand_pattern.subn(self.brand_new, protected)
-            updated = self._restore_literals(replaced, placeholder_map)
-
-            if count > 0 and updated != content:
-                self._write_file(file_path, updated)
-                self.report.files_updated += 1
-                self.report.replacements += count
-
-    def apply_custom_patterns(self):
-        """Apply user-defined custom replacement patterns."""
-        if not self.custom_patterns:
-            return
-
-        self._log("\n=== Applying Custom Patterns ===")
-        for item in self.custom_patterns:
-            old_text = (item.get("from") or "").strip()
-            new_text = (item.get("to") or "").strip()
-            file_patterns = item.get("file_patterns") or DEFAULT_TEXT_PATTERNS
-            if not old_text:
-                continue
-
-            for file_path in self._iter_files(file_patterns):
-                self.report.files_scanned += 1
-                changed, count = self._replace_in_file_literal(file_path, ((old_text, new_text),))
-                if changed:
-                    self.report.files_updated += 1
-                    self.report.replacements += count
-
-    @staticmethod
-    def _remove_module_line(xml_text: str, module_name: str) -> Tuple[str, int]:
-        pattern = re.compile(rf"\n[ \t]*<module>{re.escape(module_name)}</module>[ \t]*")
-        return pattern.subn("", xml_text)
-
-    @staticmethod
-    def _remove_dependency_block(xml_text: str, artifact_id: str) -> Tuple[str, int]:
-        pattern = re.compile(
-            rf"\n?[ \t]*<dependency>\s*.*?<artifactId>{re.escape(artifact_id)}</artifactId>.*?</dependency>\s*",
-            flags=re.DOTALL,
-        )
-        return pattern.subn("\n", xml_text)
-
-    def _update_pom_for_removed_module(self, artifact_id: str):
-        pom_files = list(self.project_root.rglob("pom.xml"))
-        for pom_file in pom_files:
-            if self._should_skip_file(pom_file):
-                continue
-            try:
-                content = pom_file.read_text(encoding="utf-8")
-            except (UnicodeDecodeError, PermissionError) as exc:
-                self._warn(f"Skipping pom update {pom_file}: {exc}")
-                continue
-
-            updated = content
-            updated, module_removed = self._remove_module_line(updated, artifact_id)
-            updated, dep_removed = self._remove_dependency_block(updated, artifact_id)
-            if updated != content and (module_removed > 0 or dep_removed > 0):
-                self._write_file(pom_file, updated)
-                rel = pom_file.relative_to(self.project_root).as_posix()
-                self.report.pom_updated.append(rel)
-
-    def _resolve_module_target(self, module_name: str) -> Optional[Path]:
-        normalized = module_name.strip().replace("\\", "/")
-        candidates = [
-            self.project_root / normalized,
-            self.project_root / KNOWN_MODULE_PATHS.get(normalized, ""),
-        ]
-
-        if "/" not in normalized:
-            if normalized.startswith("continew-plugin-"):
-                candidates.append(self.project_root / "continew-plugin" / normalized)
-            if normalized.startswith("continew-extension-"):
-                candidates.append(self.project_root / "continew-extension" / normalized)
-
-        for candidate in candidates:
-            if candidate and candidate.exists():
-                return candidate.resolve()
-        return None
+            rel = file_path.relative_to(self.project_root)
+        except ValueError:
+            return False
+        rel_str = str(rel).replace('\\', '/')
+        for pp in preserve_paths:
+            pp_norm = pp.replace('\\', '/').strip('/').replace('**/', '')
+            if pp_norm and pp_norm in rel_str:
+                return True
+        return False
 
     def remove_modules(self):
-        """Remove specified modules and synchronize pom references."""
-        self._log("\n=== Removing Modules ===")
+        """Remove specified modules."""
+        print("\n=== Removing Modules ===")
 
         for module_name in self.modules_remove:
-            module_path = self._resolve_module_target(module_name)
-            if not module_path:
-                self._warn(f"Module not found: {module_name}")
-                continue
+            module_path = self.project_root / module_name
 
-            artifact_id = module_path.name
-            rel = module_path.relative_to(self.project_root).as_posix()
-            if self.dry_run:
-                self._log(f"[DRY-RUN] Would remove module: {rel}")
+            if module_path.exists():
+                if self.dry_run:
+                    print(f"[DRY-RUN] Would remove module: {module_name}")
+                else:
+                    print(f"Removing module: {module_name}")
+                    shutil.rmtree(module_path)
             else:
-                shutil.rmtree(module_path)
-                self._log(f"Removed module: {rel}")
-            self.report.dirs_removed.append(rel)
-
-            self._update_pom_for_removed_module(artifact_id)
+                print(f"Module not found: {module_name}")
 
     def update_project_metadata(self):
-        """Update basic project metadata files."""
-        self._log("\n=== Updating Project Metadata ===")
-        project_name = (self.metadata_project.get("name") or "").strip()
-        project_desc = (self.metadata_project.get("description") or "").strip()
+        """Update project metadata files."""
+        print("\n=== Updating Project Metadata ===")
 
-        if self.update_readme:
-            readme_path = self.project_root / "README.md"
-            if readme_path.exists():
-                try:
-                    content = readme_path.read_text(encoding="utf-8")
-                    updated = content
-                    if project_name:
-                        updated = updated.replace("ContiNew Admin", project_name)
-                    if project_desc:
-                        updated = updated.replace(
-                            "持续迭代优化的前后端分离中后台管理系统框架，开箱即用，持续提供舒适的开发体验。",
-                            project_desc,
-                        )
-                    if updated != content:
-                        self._write_file(readme_path, updated)
-                        self.report.files_updated += 1
-                except (UnicodeDecodeError, PermissionError) as exc:
-                    self._warn(f"Skipping metadata update for README.md: {exc}")
+        readme_path = self.project_root / 'README.md'
+        if readme_path.exists():
+            print(f"Review and update: {readme_path}")
+            # TODO: Implement README update logic
 
-        if self.update_changelog:
-            changelog = self.project_root / "CHANGELOG.md"
-            if changelog.exists():
-                self._log("update_changelog=true: please verify if historical changelog should be retained.")
+        changelog_path = self.project_root / 'CHANGELOG.md'
+        if changelog_path.exists():
+            print(f"Review CHANGELOG.md - consider removing for new project")
 
-        if self.update_license:
-            self._log("update_license=true: review LICENSE holder fields manually.")
-
-    def post_validate(self):
-        """Basic post checks to catch obvious replacement gaps."""
-        self._log("\n=== Post Validation ===")
-        remaining_old_package = 0
-
-        for file_path in self._iter_files(PACKAGE_PATTERNS):
-            try:
-                content = file_path.read_text(encoding="utf-8")
-            except (UnicodeDecodeError, PermissionError):
-                continue
-            remaining_old_package += content.count(self.package_old)
-
-        if remaining_old_package > 0:
-            self._warn(f"Found {remaining_old_package} occurrences of old package: {self.package_old}")
-        else:
-            self._log("No old package references detected.")
-
-        self._validate_child_modules_exist()
-
-    @staticmethod
-    def _extract_module_names(pom_content: str) -> List[str]:
-        return [name.strip() for name in re.findall(r"<module>\s*([^<\s]+)\s*</module>", pom_content)]
-
-    def _validate_child_modules_exist(self):
-        """Validate that all child modules declared in pom.xml physically exist."""
-        missing_entries: List[str] = []
-
-        for pom_file in self.project_root.rglob("pom.xml"):
-            if self._should_skip_file(pom_file):
-                continue
-            try:
-                content = pom_file.read_text(encoding="utf-8")
-            except (UnicodeDecodeError, PermissionError) as exc:
-                self._warn(f"Skipping module path validation for {pom_file}: {exc}")
-                continue
-
-            module_names = self._extract_module_names(content)
-            if not module_names:
-                continue
-
-            for module_name in module_names:
-                module_dir = (pom_file.parent / module_name).resolve()
-                if module_dir.exists():
-                    continue
-
-                pom_rel = pom_file.relative_to(self.project_root).as_posix()
-                try:
-                    module_rel = module_dir.relative_to(self.project_root).as_posix()
-                except ValueError:
-                    module_rel = str(module_dir)
-
-                message = f"{pom_rel} -> missing module dir: {module_rel}"
-                missing_entries.append(message)
-                self._warn(message)
-
-        self.report.missing_modules.extend(missing_entries)
-
-    def try_rollback(self):
-        if self.dry_run or not self.rollback_on_failure or not self.backup_path:
-            return
-        if not self.backup_outside_root:
-            self._warn("Skipping auto rollback because backup is inside project root.")
-            return
-
-        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-        failed_path = self.project_root.parent / f"{self.project_root.name}-failed-{timestamp}"
-        try:
-            if self.project_root.exists():
-                shutil.move(str(self.project_root), str(failed_path))
-            shutil.copytree(self.backup_path, self.project_root)
-            self._warn(f"Rollback completed from backup: {self.backup_path}")
-            self._warn(f"Failed state moved to: {failed_path}")
-        except Exception as exc:  # pylint: disable=broad-except
-            self._warn(f"Auto rollback failed: {exc}")
-            self._warn(f"Manual restore from backup: {self.backup_path}")
-
-    def print_summary(self):
-        print("\n" + "=" * 60)
-        print("Execution Summary")
-        print("=" * 60)
-        print(f"Dry run: {self.dry_run}")
-        print(f"Strict mode: {self.strict}")
-        print(f"Report JSON: {self.report_json_path if self.report_json_path else 'disabled'}")
-        print(f"Files scanned: {self.report.files_scanned}")
-        print(f"Files updated: {self.report.files_updated}")
-        print(f"Replacement count: {self.report.replacements}")
-        print(f"Directories renamed: {len(self.report.dirs_renamed)}")
-        print(f"Directories removed: {len(self.report.dirs_removed)}")
-        print(f"POM files updated: {len(self.report.pom_updated)}")
-        print(f"Missing module paths: {len(self.report.missing_modules)}")
-        if self.report.warnings:
-            print(f"Warnings: {len(self.report.warnings)}")
-        print("=" * 60)
-
-    def _strict_failure_reasons(self) -> List[str]:
-        reasons: List[str] = []
-        if self.report.missing_modules:
-            reasons.append("Found missing module paths in pom.xml validation")
-        if self.report.warnings:
-            reasons.append(f"Found {len(self.report.warnings)} warning(s)")
-        return reasons
-
-    def _build_report_payload(self, success: bool, config_errors: Optional[List[str]] = None) -> Dict:
-        return {
-            "success": success,
-            "dry_run": self.dry_run,
-            "strict": self.strict,
-            "timestamp": datetime.now().isoformat(),
-            "project_root": str(self.project_root),
-            "brand": {"old": self.brand_old, "new": self.brand_new},
-            "package": {"old": self.package_old, "new": self.package_new},
-            "config_errors": config_errors or [],
-            "report": asdict(self.report),
-        }
-
-    def _write_report_json(self, success: bool, config_errors: Optional[List[str]] = None):
-        if not self.report_json_path:
-            return
-        payload = self._build_report_payload(success=success, config_errors=config_errors)
-        try:
-            self.report_json_path.parent.mkdir(parents=True, exist_ok=True)
-            self.report_json_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-            self._log(f"Report written: {self.report_json_path}")
-        except (OSError, PermissionError) as exc:
-            self._warn(f"Failed to write report json: {exc}")
-
-    def run(self) -> bool:
+    def run(self):
         """Execute the full initialization process."""
-        print(f"\n{'=' * 60}")
-        print("ContiNew Project Initializer")
-        print(f"{'=' * 60}")
+        print(f"\n{'='*60}")
+        print(f"Project Initializer (Multi-Framework)")
+        print(f"{'='*60}")
         print(f"Brand: {self.brand_old} -> {self.brand_new}")
         print(f"Package: {self.package_old} -> {self.package_new}")
         print(f"Project Root: {self.project_root}")
-        print(f"Dry Run: {self.dry_run}")
-        print(f"{'=' * 60}\n")
+        if self.dry_run:
+            print("*** DRY-RUN MODE: No files will be modified ***")
+        print(f"{'='*60}\n")
 
         is_valid, errors = self.validate_config()
         if not is_valid:
             print("Configuration errors:")
             for error in errors:
                 print(f"  - {error}")
-            self._write_report_json(success=False, config_errors=errors)
             return False
 
-        success = False
-        try:
-            self.create_backup()
-            self.remove_modules()
-            self.rename_directories()
+        self.create_backup()
+
+        # Order: 1. file_renames, 2. directories, 3. package dirs, 4. replacements
+        self.apply_file_renames()
+        self.rename_directories()
+        self.rename_package_directories()
+        if self.replacements:
+            self.apply_replacements()
+        else:
             self.replace_package_paths()
             self.replace_brand_content()
-            self.apply_custom_patterns()
-            self.update_project_metadata()
-            self.post_validate()
-        except Exception as exc:  # pylint: disable=broad-except
-            self._warn(f"Execution failed: {exc}")
-            self.try_rollback()
-        else:
-            success = True
-            if self.strict:
-                strict_failures = self._strict_failure_reasons()
-                if strict_failures:
-                    success = False
-                    for reason in strict_failures:
-                        self._warn(f"[STRICT] {reason}")
+            self.rename_brand_files()
+        self.rename_brand_subdirs()
+        self.remove_modules()
+        self.update_project_metadata()
 
-        self.print_summary()
-        self._write_report_json(success=success)
-        if success:
-            print("\nNext steps:")
-            print("1. Review changes in your IDE")
-            print("2. Run: mvn clean install (backend)")
-            print("3. Validate startup and key APIs")
-        return success
+        print("\n" + "="*60)
+        print("Initialization complete!")
+        print("="*60)
+        print("\nNext steps:")
+        print("1. Review changes in your IDE")
+        print("2. Update project configuration files")
+        build = self._config.get('build', {})
+        verify_cmd = build.get('verify_command', 'mvn clean install')
+        print(f"3. Test build: {verify_cmd}")
+        print("4. Initialize git: git init")
+        print("5. Commit your new project")
+
+        return True
 
 
 def load_config(config_file: str) -> Dict:
     """Load configuration from YAML file."""
-    with open(config_file, "r", encoding="utf-8") as file_obj:
-        loaded = yaml.safe_load(file_obj)
-    return loaded or {}
+    import yaml
+
+    with open(config_file, 'r', encoding='utf-8') as f:
+        return yaml.safe_load(f) or {}
 
 
-def interactive_mode() -> Dict:
+def interactive_mode(framework_hint: Optional[str] = None) -> Dict:
     """Run interactive configuration mode."""
-    print("\n=== ContiNew Project Initialization - Interactive Mode ===\n")
+    presets = load_presets()
+    project_root = Path('.')
+
+    # Detect or select framework
+    framework = framework_hint or detect_framework(project_root)
+    if not framework and presets:
+        print("Available frameworks: " + ", ".join(presets.keys()))
+        fw_input = input("Enter framework (continew/ruoyi) or press Enter to skip: ").strip().lower()
+        framework = fw_input if fw_input in presets else None
+
+    preset = presets.get(framework, {}) if framework else {}
+    brand_old = preset.get('brand', {}).get('old', 'continew')
+    package_old = preset.get('package', {}).get('old', 'top.continew.admin')
+
+    if framework:
+        print(f"\nUsing framework preset: {framework}")
 
     config = {
-        "brand": {"old": "continew"},
-        "package": {"old": "top.continew.admin"},
-        "directories": {"rename": []},
-        "modules": {"remove": []},
-        "project_root": ".",
-        "advanced": {"create_backup": True, "dry_run": False, "strict": False, "verbose": True},
+        'brand': {'old': brand_old},
+        'package': {'old': package_old},
+        'directories': {'rename': []},
+        'modules': {'remove': []},
+        'project_root': '.',
     }
 
-    config["brand"]["new"] = input("Enter new brand name (e.g., mycompany): ").strip().lower()
-    config["package"]["new"] = input("Enter new package name (e.g., com.mycompany.admin): ").strip()
-    config["project_root"] = input("Project root path (default .): ").strip() or "."
+    config['brand']['new'] = input(f"Enter new brand name (e.g., mycompany) [{brand_old}]: ").strip().lower() or brand_old
+    config['package']['new'] = input(f"Enter new package name (e.g., com.mycompany.admin) [{package_old}]: ").strip() or package_old
 
-    remove_schedule = input("Remove schedule-server module? (y/N): ").strip().lower()
-    if remove_schedule == "y":
-        config["modules"]["remove"].append("continew-extension-schedule-server")
+    # Optional module removal
+    optional = preset.get('optional_modules', [])
+    if optional:
+        for mod in optional:
+            ans = input(f"Remove {mod}? (y/N): ").strip().lower()
+            if ans == 'y':
+                config['modules']['remove'].append(mod)
 
-    brand_new = config["brand"]["new"]
-    directories = [
-        ("continew-admin", f"{brand_new}-admin"),
-        ("continew-server", f"{brand_new}-server"),
-        ("continew-system", f"{brand_new}-system"),
-        ("continew-common", f"{brand_new}-common"),
-        ("continew-plugin", f"{brand_new}-plugin"),
-        ("continew-extension", f"{brand_new}-extension"),
-        ("continew-plugin/continew-plugin-open", f"{brand_new}-plugin/{brand_new}-plugin-open"),
-        ("continew-plugin/continew-plugin-tenant", f"{brand_new}-plugin/{brand_new}-plugin-tenant"),
-        ("continew-plugin/continew-plugin-schedule", f"{brand_new}-plugin/{brand_new}-plugin-schedule"),
-        ("continew-plugin/continew-plugin-generator", f"{brand_new}-plugin/{brand_new}-plugin-generator"),
-    ]
-    if remove_schedule != "y":
-        directories.append(
-            (
-                "continew-extension/continew-extension-schedule-server",
-                f"{brand_new}-extension/{brand_new}-extension-schedule-server",
-            )
-        )
-    for old_dir, new_dir in directories:
-        config["directories"]["rename"].append({"from": old_dir, "to": new_dir})
+    # Merge preset for directory renames
+    if preset:
+        config = merge_preset(config, preset, config['brand']['new'])
 
     return config
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(description="Initialize ContiNew Admin based project")
-    parser.add_argument("--config", "-c", help="Configuration file (YAML)")
-    parser.add_argument("--interactive", "-i", action="store_true", help="Interactive mode")
-    parser.add_argument("--dry-run", action="store_true", help="Preview changes without writing files")
-    parser.add_argument("--strict", action="store_true", help="Fail when warnings are found")
-    parser.add_argument("--report-json", help="Write execution report as JSON")
+def main():
+    parser = argparse.ArgumentParser(
+        description='Initialize ContiNew Admin, RuoYi, or other Java admin framework projects'
+    )
+    parser.add_argument('--config', '-c', help='Configuration file (YAML)')
+    parser.add_argument('--interactive', '-i', action='store_true', help='Interactive mode')
+    parser.add_argument('--framework', '-f', choices=['continew', 'ruoyi'], help='Framework preset (for interactive or config merge)')
+    parser.add_argument('--project-root', '-p', default='.', help='Project root directory')
+    parser.add_argument('--dry-run', action='store_true', help='Only print what would be done, do not modify files')
+
     args = parser.parse_args()
 
     if args.interactive:
-        config = interactive_mode()
-        config_file = None
+        config = interactive_mode(args.framework)
     elif args.config:
-        config_file = Path(args.config).resolve()
-        config = load_config(str(config_file))
+        config = load_config(args.config)
+        # Apply framework preset if specified (CLI or config)
+        fw = args.framework or config.get('framework')
+        if fw:
+            presets = load_presets()
+            preset = presets.get(fw, {})
+            if preset and config.get('brand', {}).get('new'):
+                config = merge_preset(config, preset, config['brand']['new'])
     else:
         parser.print_help()
         return 1
 
-    initializer = ContiNewInitializer(
-        config=config,
-        config_file=config_file,
-        cli_dry_run=args.dry_run,
-        cli_strict=args.strict,
-        cli_report_json=args.report_json,
-    )
+    # CLI --project-root overrides config when explicitly set to non-default
+    config['project_root'] = args.project_root if args.project_root != '.' else config.get('project_root', '.')
+    if args.dry_run:
+        config.setdefault('advanced', {})['dry_run'] = True
+
+    initializer = ProjectInitializer(config)
     success = initializer.run()
+
     return 0 if success else 1
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    exit(main())

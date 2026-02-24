@@ -1,15 +1,12 @@
 <div align="center">
 
-<img src="logo.png" alt="ContiNew Start Skill Logo" width="120" height="120">
+# Project Start Skill
 
-# ContiNew Start Skill
-
-[![版本](https://img.shields.io/badge/版本-1.1.0-blue.svg)](https://github.com/itxaiohanglover/continew-start-skill)
 [![许可协议](https://img.shields.io/badge/许可协议-Apache%202.0-green.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.7+-brightgreen.svg)](https://www.python.org/downloads/)
 [![Claude Skills](https://img.shields.io/badge/Claude-Skills-purple.svg)](https://skills.sh/)
 
-**自动化 ContiNew Admin 二次初始化，支持安全预演与模块联动清理**
+**基于任意项目/模板创建新项目：检索 → 理解 → 用户确认 → 执行**
 
 </div>
 
@@ -17,175 +14,109 @@
 
 ## 概述
 
-**ContiNew Start Skill** 是一个面向 Claude Code 的初始化技能，用于将 [ContiNew Admin](https://github.com/continew-org/continew-admin) 快速改造成你的业务工程。
+**Project Start Skill** 用于自动化初始化和定制「基于 X 项目/模板 创建 Y 项目」的场景。适用于 Java、Python、Node 等任意技术栈。
 
-它覆盖：品牌替换、包路径替换、目录重命名、可选模块移除、元数据更新，并提供 `dry-run`、备份与失败回滚。
+**核心原则**：**必须先展示修改计划并得到用户明确确认，再执行**。禁止跳过确认直接修改文件。
 
-## 功能特性
+### 适用场景
 
-- 🚀 快速初始化：几分钟完成基础改造
-- 🎨 品牌定制：`continew` -> 自定义品牌
-- 📦 包路径重构：`top.continew.admin` -> 自定义包名
-- 🗂️ 目录重命名：按配置批量改模块目录
-- ⚙️ 模块移除：删除模块并联动清理 `pom.xml` 依赖与聚合项
-- 🧪 干跑预演：`--dry-run` 先看变更再落盘
-- 🛟 安全机制：支持备份与失败回滚
-- 🛡️ 保护规则：避免误改 `top.continew.starter` / `continew-starter`
+- 「基于 LightRAG 初始化 SuperRAG」（Python）
+- 「基于 ContiNew Admin 创建 MyCompany Admin」（Java）
+- 「基于 RuoYi 初始化 myproject」（Java）
+- 任意「基于 X 创建 Y」的项目初始化请求
+
+### 强制流程
+
+1. **检索与理解**：有脚本（Java/Maven）则运行 `analyze_project`，无脚本则 Agent 手动探索
+2. **生成计划**：输出修改清单（checklist）
+3. **用户确认**：向用户展示计划，**显式询问**是否确认，等待肯定答复
+4. **执行**：仅当用户确认后，执行复制、重命名、替换等操作
+
+### 预设框架（可选）
+
+| 框架 | 品牌 | 包路径 |
+|------|------|--------|
+| ContiNew Admin | continew | top.continew.admin |
+| RuoYi | ruoyi | com.ruoyi |
+
+预设可加速推断，但**不改变主流程**：仍需展示计划并等待确认。
 
 ## 安装
 
-### 方法 1：Claude Skills CLI（推荐）
-
-```bash
-npx skills add itxaiohanglover/continew-start-skill
-```
-
-### 方法 2：本地路径安装
-
-```bash
-npx skills add path/to/continew-start-skill
-```
+将 `project-start-skill` 目录放入 `.cursor/skills/` 即可使用。
 
 ## 快速开始
 
-### 方式 A：让 Claude 直接执行
+### 通用用法（任何项目类型）
 
-> "用 continew-start-skill 初始化项目，brand=mycompany，package=com.mycompany.admin"
+向 Claude 描述需求，例如：
 
-### 方式 B：配置文件 + 脚本
+> "基于 LightRAG-main 初始化一个名为 SuperRAG 的新项目"
+> "基于 ContiNew Admin 创建 MyCompany Admin，包名为 com.mycompany.admin"
 
-1. 复制 `assets/config-template.yaml`
-2. 按需修改配置
-3. 执行初始化
+**重要**：Claude 会先探索项目、生成修改清单，**向您展示计划并询问确认**。请确认后再执行。
+
+### Java 项目（有脚本）
+
+1. 运行分析脚本：
+```bash
+cd .cursor/skills/project-start-skill/scripts
+python analyze_project.py --path /path/to/project --brand-new mycompany --package-new com.mycompany --output report
+```
+
+2. **查看并确认**生成的 `report-checklist.md` 内容
+3. 确认后执行：
+```bash
+python init_project.py --config report-config.yaml --project-root /path/to/project --dry-run  # 建议先预览
+python init_project.py --config report-config.yaml --project-root /path/to/project
+```
+
+### 交互模式（Java 预设）
 
 ```bash
-python scripts/init_project.py --config my-config.yaml
+python scripts/init_project.py --interactive
+python scripts/init_project.py --interactive --framework ruoyi
 ```
 
-先预演（不写入）：
-
-```bash
-python scripts/init_project.py --config my-config.yaml --dry-run
-```
-
-### Advanced CLI Options
-
-```bash
-# Strict mode: treat warnings as failure
-python scripts/init_project.py --config my-config.yaml --strict
-
-# Export machine-readable report
-python scripts/init_project.py --config my-config.yaml --report-json ./logs/init-report.json
-```
-
-## 推荐实战流程（确保 Build Success）
-
-1. 准备环境（JDK 17/21、Maven 3.9+、Python + `pyyaml`）
-2. 克隆一份全新 ContiNew 代码副本（不要在生产仓库直接执行）
-3. 基于 `assets/config-template.yaml` 填写配置
-4. 先执行 `--dry-run --strict --report-json`
-5. 再执行正式初始化 `--strict --report-json`
-6. 在目标项目中执行编译验证
-
-```bash
-# 1) 预演
-python scripts/init_project.py --config my-config.yaml --dry-run --strict --report-json ./logs/dry-run.json
-
-# 2) 正式执行
-python scripts/init_project.py --config my-config.yaml --strict --report-json ./logs/run.json
-
-# 3) 编译验证（在初始化后的目标项目目录）
-mvn clean compile -DskipTests
-```
-
-## Claude 使用模板
-
-推荐在 Claude 中显式指定 skill：
-
-```text
-/continew-start-skill 请使用 continew-start-skill 初始化 ContiNew 项目。
-project_root: D:\test\test_project\continew-admin-dev (此处为ContiNew项目在本地的地址)
-brand.new: mytest
-package.new: com.mytest.admin
-modules.remove: [continew-extension-schedule-server]
-先 dry-run，再正式执行，并输出 report-json。
-```
-
-说明：
-- `/continew-start-skill` 前缀不是强制，但建议保留，触发更稳定
-- 需要机器可读结果时，开启 `--report-json`
-- 需要将 warning 视为失败时，开启 `--strict`
-
-## 示例配置
-
-```yaml
-brand:
-  old: continew
-  new: mycompany
-
-package:
-  old: top.continew.admin
-  new: com.mycompany.admin
-
-modules:
-  remove:
-    - continew-extension-schedule-server
-    - continew-plugin-generator
-
-advanced:
-  create_backup: true
-  backup_location: ../backup
-  rollback_on_failure: true
-  dry_run: false
-  strict: false
-  # report_json: ./logs/init-report.json
-```
+即使使用预设，**仍应展示将修改的内容并取得用户认可**后再执行。
 
 ## 项目结构
 
-```text
-continew-start-skill/
-├── SKILL.md
-├── README.md
-├── LICENSE
-├── scripts/
-│   └── init_project.py
-├── references/
-│   └── replacement-rules.md
-└── assets/
-    └── config-template.yaml
 ```
-
-## 重要说明
-
-- 建议始终在新分支执行初始化
-- 建议先跑 `--dry-run` 再执行真实改造
-- 模块移除后请执行 `mvn clean install` 验证
-- 若改了目录结构，请在 IDE 中刷新索引
-
-## 常见问题
-
-| 问题 | 建议 |
-|------|------|
-| 找不到模块 | 检查模块名是否为短名或正确相对路径 |
-| `Child module ... does not exist` | 常见原因是 `pom.xml` 模块名已替换为 `mytest-*`，但目录仍是 `continew-*`。请补全 `directories.rename`（含根模块与 plugin 子模块）后重新执行 |
-| Lombok 相关大量报错（`log/getter/构造器` 找不到） | 优先检查 JDK，建议使用 JDK 17 或 JDK 21 后重试 |
-| 包路径替换不完整 | 检查 `package.old` 是否与目标仓库一致 |
-| 构建失败 | 执行 `mvn clean install` 并检查 `pom.xml` 依赖 |
-| 脚本无法运行 | 安装 `pyyaml`：`pip install pyyaml` |
+project-start-skill/
+├── SKILL.md                    # 主技能文档（含前置规则、流程、确认规范）
+├── README.md                   # 本文件
+├── scripts/
+│   ├── analyze_project.py     # Java/Maven 项目分析（输出 config/report/checklist）
+│   ├── init_project.py         # 初始化脚本
+│   └── create_project.py       # 从模板创建
+├── references/
+│   └── replacement-rules.md    # ContiNew 与 RuoYi 替换规则
+└── assets/
+    ├── config-template.yaml    # 配置模板
+    └── framework-presets.yaml  # 框架预设（可选快捷方式）
+```
 
 ## 文档
 
-- [SKILL.md](SKILL.md) - 技能工作流
-- [references/replacement-rules.md](references/replacement-rules.md) - 替换与清理规则
-- [assets/config-template.yaml](assets/config-template.yaml) - 配置模板
+- **[SKILL.md](SKILL.md)** - 完整技能文档（前置规则、确认步骤、无脚本发现等）
+- **[替换规则](references/replacement-rules.md)** - ContiNew 与 RuoYi 替换模式
 
-## 许可证
+## 系统要求
 
-本项目采用 Apache License 2.0，详见 [LICENSE](LICENSE)。
+- Python 3.7+
+- PyYAML：`pip install pyyaml`
+
+## 重要提示
+
+> **运行初始化前务必备份您的项目！**
+
+- **确认不可跳过**：无论何种项目，均须展示计划并等待用户确认后再执行
+- 先备份：创建原始项目的备份
+- cap_old/cap_new：用于 PascalCase 替换；preserve 可保留 Maven 依赖等
+- 模块依赖：移除模块前验证依赖关系
 
 ## 相关链接
 
 - [ContiNew Admin](https://github.com/continew-org/continew-admin)
-- [ContiNew Starter](https://github.com/continew-org/continew-starter)
-- [ContiNew 文档](https://continew.top)
+- [RuoYi](https://gitee.com/y_project/RuoYi)

@@ -1,0 +1,50 @@
+# Framework Presets for Project Initialization
+# Used when framework is specified in config - auto-fills old values and directory mappings
+
+continew:
+  description: ContiNew Admin - 基于 Spring Boot 的现代化后台管理框架
+  brand:
+    old: continew
+    cap_old: ContiNew
+  package:
+    old: top.continew.admin
+  directories:
+    - from: continew-admin
+      suffix: admin
+    - from: continew-server
+      suffix: server
+    - from: continew-system
+      suffix: system
+    - from: continew-common
+      suffix: common
+    - from: continew-plugin
+      suffix: plugin
+    - from: continew-extension
+      suffix: extension
+  optional_modules:
+    - continew-extension-schedule-server
+    - continew-plugin-generator
+
+ruoyi:
+  description: RuoYi - 基于 Spring Boot 的轻量级 Java 快速开发框架
+  brand:
+    old: ruoyi
+    cap_old: RuoYi
+  package:
+    old: com.ruoyi
+  directories:
+    - from: ruoyi-admin
+      suffix: admin
+    - from: ruoyi-framework
+      suffix: framework
+    - from: ruoyi-system
+      suffix: system
+    - from: ruoyi-quartz
+      suffix: quartz
+    - from: ruoyi-generator
+      suffix: generator
+    - from: ruoyi-common
+      suffix: common
+  optional_modules:
+    - ruoyi-quartz
+    - ruoyi-generator
